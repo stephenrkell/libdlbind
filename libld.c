@@ -138,9 +138,10 @@ static Elf64_Addr issue_vaddr(Elf64_Addr *p_next_vaddr, unsigned align, unsigned
 }
 static Elf_Scn *create_section_and_header(off_t *p_filepos, Elf *e,
 	char *buf, size_t size, int data_type, int section_name_idx, int section_type, int section_flags,
-	unsigned align, unsigned entsize, ElfW(Addr) *p_next_vaddr)
+	unsigned align, unsigned entsize, unsigned link, unsigned info, Elf64_Addr *p_next_vaddr)
 {
 	Elf_Scn *scn;
+	Elf_Data *data;
 	/* create a .hash section */
 	off_t hash_start = *p_filepos;
 	if ((scn = elf_newscn(e)) == NULL) errx(EX_SOFTWARE, 
@@ -150,18 +151,20 @@ static Elf_Scn *create_section_and_header(off_t *p_filepos, Elf *e,
 		"elf_newdata() failed: %s.", elf_errmsg(-1));
 	data->d_align = align;
 	data->d_off = 0LL;
-	data->d_buf = hash_words; // will be copied by the library
+	data->d_buf = buf; // will be copied by the library
 	data->d_type = data_type;
 	data->d_size = size;
 	data->d_version = EV_CURRENT;
 
 	/* create a section header for .hash */
-	
+	Elf64_Shdr *shdr;
 	if ((shdr = elf64_getshdr(scn)) == NULL) errx(EX_SOFTWARE, 
 		"elf64_getshdr() failed :%s.", elf_errmsg(-1));
 	shdr->sh_name = section_name_idx; /* offset 1 in shstrtab */
 	shdr->sh_type = section_type;
 	shdr->sh_flags = section_flags;
+	shdr->sh_link = link;
+	shdr->sh_info = info;
 	shdr->sh_entsize = entsize;
 	shdr->sh_addr = issue_vaddr(p_next_vaddr, data->d_align, data->d_size);
 
@@ -176,12 +179,10 @@ ld_handle_t dlnew(const char *libname)
 	 * in it, and dlopen it with the magic flags. */
 	int fd;
 	Elf *e;
-	Elf_Scn *scn;
-	Elf_Data *data;
 	Elf64_Ehdr *ehdr;
 	Elf64_Phdr *phdr;
 	Elf64_Shdr *shdr;
-	off_t filepos;
+	off_t filepos = 0;
 
 	if (elf_version(EV_CURRENT) == EV_NONE) errx(EX_SOFTWARE, 
 		"ELF library initialization failed: %s ", elf_errmsg(-1));
@@ -226,197 +227,55 @@ ld_handle_t dlnew(const char *libname)
 	if ((phdr = elf64_newphdr(e, 1)) == NULL) errx(EX_SOFTWARE,
 		"elf64_newphdr() failed: %s.", elf_errmsg(-1));
 
-
 	create_section_and_header(&filepos, e, 
-		hash_words, sizeof hash_words, ELF_T_WORD, 47 /* offset 1 in shstrtab */, 
-		SHT_HASH, SHF_ALLOC, 4096, 0,
+		(char*) hash_words, sizeof hash_words, ELF_T_WORD, 47 /* offset in shstrtab */, 
+		SHT_HASH, SHF_ALLOC, 4096, 0, 0, 0, 
 		&ent->next_vaddr);
-
-	/* create a section for shstrtab */
-	off_t shstrtab_start = filepos;
-	if ((scn = elf_newscn(e)) == NULL) errx (EX_SOFTWARE, 
-		"elf_newscn() failed : %s.", elf_errmsg(-1));
-	/* create the shstrtab data */
-	if ((data = elf_newdata(scn)) == NULL) errx(EX_SOFTWARE, 
-		"elf_newdata() failed : %s.", elf_errmsg(-1));
-	data->d_align = 1;
-	data->d_buf = shstrtab;
-	data->d_off = 0LL;
-	data->d_size = sizeof shstrtab;
-	data->d_type = ELF_T_BYTE;
-	data->d_version = EV_CURRENT;
-	/* create the section header for strtab */
-	if ((shdr = elf64_getshdr(scn)) == NULL) errx(EX_SOFTWARE, 
-		"elf64_getshdr() failed: %s.", elf_errmsg(-1));
-	shdr->sh_name = 1; // offset in shstrtab
-	shdr->sh_type = SHT_STRTAB;
-	shdr->sh_flags = SHF_STRINGS|SHF_ALLOC;
-	shdr->sh_entsize = 0;
-	shdr->sh_addr = issue_vaddr(&ent->next_vaddr, data->d_align, data->d_size);
+	
+	Elf_Scn *shstrtab_scn = create_section_and_header(&filepos, e,
+			shstrtab, sizeof shstrtab, ELF_T_BYTE, 1 /* offset in shstrtab */,
+			SHT_STRTAB, SHF_STRINGS|SHF_ALLOC, 1, 0, 0, 0, 
+			&ent->next_vaddr);
 	/* set the shrstr index */
-	elf_setshstrndx(e, elf_ndxscn(scn));
+	elf_setshstrndx(e, elf_ndxscn(shstrtab_scn));
 
 	/* create a section for dynstr */
-	off_t dynstr_start = filepos;
-	if ((scn = elf_newscn(e)) == NULL) errx (EX_SOFTWARE, 
-		"elf_newscn() failed : %s.", elf_errmsg(-1));
-	/* create the dynstr data */
-	if ((data = elf_newdata(scn)) == NULL) errx(EX_SOFTWARE, 
-		"elf_newdata() failed : %s.", elf_errmsg(-1));
-	data->d_align = 4096;
-	data->d_buf = ent->strtab;
-	data->d_off = 0LL;
-	data->d_size = sizeof ent->strtab;
-	data->d_type = ELF_T_BYTE;
-	data->d_version = EV_CURRENT;
-	/* create the section header for dynstr */
-	if ((shdr = elf64_getshdr(scn)) == NULL) errx(EX_SOFTWARE, 
-		"elf64_getshdr() failed: %s.", elf_errmsg(-1));
-	shdr->sh_name = 1; // offset in shstrtab
-	shdr->sh_type = SHT_STRTAB;
-	shdr->sh_flags = SHF_STRINGS|SHF_ALLOC;
-	shdr->sh_entsize = 0;
-	shdr->sh_addr = issue_vaddr(&ent->next_vaddr, data->d_align, data->d_size);
+	Elf_Scn *dynstr_scn = create_section_and_header(&filepos, e, 
+			ent->strtab, sizeof ent->strtab, ELF_T_BYTE, 39,
+			SHT_STRTAB, SHF_STRINGS|SHF_ALLOC, 1, 0, 0, 0, 
+			&ent->next_vaddr);
 	
-	/* What other sections do we need to add?
-	 * text, data, rodata. */
-	Elf_Scn *dynstr_scn;
-	/* create a .text section */
-	off_t text_start = filepos;
-	if ((dynstr_scn = scn = elf_newscn (e)) == NULL) errx(EX_SOFTWARE, 
-		"elf_newscn() failed: %s.", elf_errmsg(-1));
-	/* create a data object for the .text data */
-	if ((data = elf_newdata(scn)) == NULL) errx (EX_SOFTWARE, 
-		"elf_newdata() failed: %s.", elf_errmsg(-1));
-	data->d_align = 4096;
-	data->d_off = 0LL;
-	data->d_buf = ent->text; // will be copied by the library
-	data->d_type = ELF_T_BYTE;
-	data->d_size = sizeof ent->text;
-	data->d_version = EV_CURRENT;
-	/* create a section header for .text */
-	if ((shdr = elf64_getshdr(scn)) == NULL) errx(EX_SOFTWARE, 
-		"elf64_getshdr() failed :%s.", elf_errmsg(-1));
-	shdr->sh_name = 11; /* offset 11 in shstrtab */
-	shdr->sh_type = SHT_PROGBITS;
-	shdr->sh_flags = SHF_ALLOC|SHF_EXECINSTR;
-	shdr->sh_entsize = 0;
-	shdr->sh_addr = issue_vaddr(&ent->next_vaddr, data->d_align, data->d_size);
+	/* create a section for text */
+	Elf_Scn *text_scn = create_section_and_header(&filepos, e,
+			ent->text, sizeof ent->text, ELF_T_BYTE, 11,
+			SHT_PROGBITS, SHF_ALLOC|SHF_EXECINSTR, 4096, 0, 0, 0,
+			&ent->next_vaddr);
+	ent->text_ndx = elf_ndxscn(text_scn);
 	
-	ent->text_ndx = elf_ndxscn(scn);
-	
-	/* write data so far */
-	update_file(&filepos, e);
-
 	/* create a .data section */
-	off_t data_start = filepos;
-	if ((scn = elf_newscn (e)) == NULL) errx(EX_SOFTWARE, 
-		"elf_newscn() failed: %s.", elf_errmsg(-1));
-	/* create a data object for the .text data */
-	if ((data = elf_newdata(scn)) == NULL) errx (EX_SOFTWARE, 
-		"elf_newdata() failed: %s.", elf_errmsg(-1));
-	data->d_align = 4096;
-	data->d_off = 0LL;
-	data->d_buf = ent->data; // will be copied by the library
-	data->d_type = ELF_T_BYTE;
-	data->d_size = sizeof ent->data;
-	data->d_version = EV_CURRENT;
-	/* create a section header for .data */
-	if ((shdr = elf64_getshdr(scn)) == NULL) errx(EX_SOFTWARE, 
-		"elf64_getshdr() failed :%s.", elf_errmsg(-1));
-	shdr->sh_name = 17; /* offset 17 in shstrtab */
-	shdr->sh_type = SHT_PROGBITS;
-	shdr->sh_flags = SHF_ALLOC|SHF_WRITE;
-	shdr->sh_entsize = 0;
-	shdr->sh_addr = issue_vaddr(&ent->next_vaddr, data->d_align, data->d_size);
-	
-	ent->data_ndx = elf_ndxscn(scn);
-	/* write data so far */
-	update_file(&filepos, e);
+	Elf_Scn *data_scn = create_section_and_header(&filepos, e,
+			ent->data, sizeof ent->data, ELF_T_BYTE, 17,
+			SHT_PROGBITS, SHF_ALLOC|SHF_WRITE, 4096, 0, 0, 0,
+			&ent->next_vaddr);
+	ent->data_ndx = elf_ndxscn(data_scn);
 
-	/* create a .rodata section */
-	off_t rodata_start = filepos;
-	if ((scn = elf_newscn (e)) == NULL) errx(EX_SOFTWARE, 
-		"elf_newscn() failed: %s.", elf_errmsg(-1));
-	/* create a data object for the .text data */
-	if ((data = elf_newdata(scn)) == NULL) errx (EX_SOFTWARE, 
-		"elf_newdata() failed: %s.", elf_errmsg(-1));
-	data->d_align = 4096;
-	data->d_off = 0LL;
-	data->d_buf = ent->rodata; // will be copied by the library
-	data->d_type = ELF_T_BYTE;
-	data->d_size = sizeof ent->rodata;
-	data->d_version = EV_CURRENT;
-	/* create a section header for .rodata */
-	if ((shdr = elf64_getshdr(scn)) == NULL) errx(EX_SOFTWARE, 
-		"elf64_getshdr() failed :%s.", elf_errmsg(-1));
-	shdr->sh_name = 23; /* offset 23 in shstrtab */
-	shdr->sh_type = SHT_PROGBITS;
-	shdr->sh_flags = SHF_ALLOC;
-	shdr->sh_entsize = 0;
-	shdr->sh_addr = issue_vaddr(&ent->next_vaddr, data->d_align, data->d_size);
-	ent->rodata_ndx = elf_ndxscn(scn);
-	/* write data so far */
-	update_file(&filepos, e);
+	Elf_Scn *rodata_scn = create_section_and_header(&filepos, e,
+			ent->rodata, sizeof ent->rodata, ELF_T_BYTE, 23,
+			SHT_PROGBITS, SHF_ALLOC, 4096, 0, 0, 0, 
+			&ent->next_vaddr);
+	ent->rodata_ndx = elf_ndxscn(rodata_scn);
 	
-	/* we also need a dynsym */
-	off_t dynsym_start = filepos;
-	if ((scn = elf_newscn (e)) == NULL) errx(EX_SOFTWARE, 
-		"elf_newscn() failed: %s.", elf_errmsg(-1));
-	/* create a data object for the .dynsym data */
-	if ((data = elf_newdata(scn)) == NULL) errx (EX_SOFTWARE, 
-		"elf_newdata() failed: %s.", elf_errmsg(-1));
-	data->d_align = 4096;
-	data->d_off = 0LL;
-	data->d_buf = ent->dynsym; // will be copied by the library
-	data->d_type = ELF_T_SYM;
-	data->d_size = sizeof ent->dynsym;
-	data->d_version = EV_CURRENT;
-	/* create a section header for .dynsym */
-	if ((shdr = elf64_getshdr(scn)) == NULL) errx(EX_SOFTWARE, 
-		"elf64_getshdr() failed :%s.", elf_errmsg(-1));
-	shdr->sh_name = 31; /* offset 31 in shstrtab */
-	shdr->sh_type = SHT_DYNSYM;
-	shdr->sh_flags = SHF_ALLOC;
-	shdr->sh_link = elf_ndxscn(dynstr_scn);
-	shdr->sh_info = /* index of the first non-local symbol; we make everything global */ 0;
-	shdr->sh_entsize = sizeof (Elf64_Sym);
-	shdr->sh_addr = issue_vaddr(&ent->next_vaddr, data->d_align, data->d_size);
-	ent->dynsym_ndx = elf_ndxscn(scn);
-	/* write data so far */
-	update_file(&filepos, e);
-	off_t end_of_dynsym_filepos = filepos;
-	Elf64_Addr end_of_dynsym_vaddr = ent->next_vaddr;
+	Elf_Scn *dynsym_scn = create_section_and_header(&filepos, e,
+			ent->dynsym, sizeof ent->dynsym, ELF_T_SYM, 31,
+			SHT_DYNSYM, SHF_ALLOC, 4096, sizeof (Elf64_Sym), elf_ndxscn(dynstr_scn), /* all global */ 0,
+			&ent->next_vaddr);
+	ent->dynsym_ndx = elf_ndxscn(dynsym_scn);
 	
-	/* we also need a .dynamic */
-	off_t dynamic_start = filepos;
-	if ((scn = elf_newscn (e)) == NULL) errx(EX_SOFTWARE, 
-		"elf_newscn() failed: %s.", elf_errmsg(-1));
-	/* create a data object for the .dynsym data */
-	if ((data = elf_newdata(scn)) == NULL) errx (EX_SOFTWARE, 
-		"elf_newdata() failed: %s.", elf_errmsg(-1));
-	data->d_align = 4096;
-	data->d_off = 0LL;
-	data->d_buf = basic_dynamic; // will be copied by the library
-	data->d_type = ELF_T_SYM;
-	data->d_size = sizeof basic_dynamic;
-	data->d_version = EV_CURRENT;
-	/* create a section header for .dynamic */
-	if ((shdr = elf64_getshdr(scn)) == NULL) errx(EX_SOFTWARE, 
-		"elf64_getshdr() failed :%s.", elf_errmsg(-1));
-	shdr->sh_name = 53; /* offset 53 in shstrtab */
-	shdr->sh_type = SHT_DYNAMIC;
-	shdr->sh_flags = SHF_ALLOC;
-	shdr->sh_link = elf_ndxscn(dynstr_scn);
-	shdr->sh_info = 0;
-	shdr->sh_entsize = sizeof (Elf64_Dyn);
-	shdr->sh_addr = issue_vaddr(&ent->next_vaddr, data->d_align, data->d_size);
-	Elf64_Addr dynamic_vaddr = shdr->sh_addr;
-	ent->dynsym_ndx = elf_ndxscn(scn);
-	/* write data so far */
-	update_file(&filepos, e);
-	off_t end_of_dynamic_filepos = filepos;
-	Elf64_Addr end_of_dynamic_vaddr = ent->next_vaddr;
+	Elf_Scn *dynamic_scn = create_section_and_header(&filepos, e,
+			(char*) &basic_dynamic[0], sizeof basic_dynamic, ELF_T_DYN, 53,
+			SHT_DYNAMIC, SHF_ALLOC, 4096, sizeof (Elf64_Dyn), 0, 0,
+			&ent->next_vaddr);
+	Elf64_Addr dynamic_vaddr = ent->next_vaddr - sizeof basic_dynamic;
 
 	/* create phdr table with two entries */
 	if ((phdr = elf64_newphdr(e, 2)) == NULL) errx(EX_SOFTWARE,
@@ -425,20 +284,19 @@ ld_handle_t dlnew(const char *libname)
 	phdr[0].p_type = PT_LOAD;
 	phdr[0].p_offset = 0;
 	phdr[0].p_flags = PF_R | PF_W | PF_X;
-	phdr[0].p_filesz = end_of_dynamic_filepos;
+	phdr[0].p_filesz = filepos;
 	// NOT: elf64_fsize(ELF_T_PHDR, 1, EV_CURRENT);
-	phdr[0].p_memsz = end_of_dynsym_vaddr;
+	phdr[0].p_memsz = ent->next_vaddr;
 	
 	/* populate phdr[1] -- make a PT_DYNAMIC */
 	phdr[1].p_type = PT_DYNAMIC;
-	phdr[1].p_offset = end_of_dynsym_filepos;;
+	phdr[1].p_offset = filepos - sizeof basic_dynamic;
 	phdr[1].p_vaddr = dynamic_vaddr;
 	phdr[1].p_flags = PF_R;
-	phdr[1].p_filesz = filepos - end_of_dynsym_filepos;
+	phdr[1].p_filesz = sizeof basic_dynamic;
 	// NOT: elf64_fsize(ELF_T_PHDR, 1, EV_CURRENT);
-	phdr[1].p_memsz = ent->next_vaddr - end_of_dynsym_vaddr;
+	phdr[1].p_memsz = sizeof basic_dynamic;
 	(void) elf_flagphdr(e, ELF_C_SET, ELF_F_DIRTY);
-	/* */
 	update_file(&filepos, e);
 	
 	/* end the file -- what happens if we don't do this? */
