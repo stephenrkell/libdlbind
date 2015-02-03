@@ -37,6 +37,15 @@ extern const char *greatest_version;
  * 3 bits * n: describing per-argument options, for up to 
         9 arguments (32-bit sytems), or
         19 arguments (64-bit systems). */
+enum argument_options
+{
+	INDIRECT = 1,
+	APP_CHECKED = 2,   /* e.g. nonnull, ... */
+	LANGVM_CHECKED = 4, /* e.g. already a valid Java object, ... 
+	                       -- hmm, could merge this with INDIRECT and save bits? 
+	                          i.e. */
+	MAX_PLUS_ONE = 8
+};
 
 /* HACKy helper: until we have unified libdl handles with libld handles,
  * provide a function to map between them. */

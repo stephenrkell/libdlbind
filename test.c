@@ -6,11 +6,11 @@
 #include <dlfcn.h>
 #include <assert.h>
 
-static void hello(void)
+void hello(void)
 {
 	printf("Hello from a libld-loaded library\n");
 }
-static void end_of_hello(void) {}
+void end_of_hello(void) {}
 
 int main(void)
 {

@@ -16,8 +16,8 @@ libld.a: libld.o
 	ar r "$@" $^ 
 
 # Use the static version of libld for now, so we can ltrace -lelf
-test: test.c
+test: test.c libld.a
 	$(CC) $(CFLAGS) $(LDFLAGS) -o "$@" "$<" libld.a $(LDLIBS) #/usr/lib/libelf.so.0.8.13
 
 make clean:
-	rm -f *.o test libld.so
+	rm -f *.o test libld.so libld.a
