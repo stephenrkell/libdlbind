@@ -9,6 +9,7 @@
 #include <assert.h>
 #include <string.h>
 #include <dlfcn.h>
+#include <link.h>
 
 #ifndef HAVE_ELF_SETSHSTRNDX
 #define elf_setshstrndx(e, s) elfx_update_shstrndx((e), (s))
@@ -23,11 +24,11 @@ const char *greatest_version = &greatest_version_arr[0];
 #ifndef LIBLD_MAX_CREATED_LIBRARIES 
 #define LIBLD_MAX_CREATED_LIBRARIES 1
 #endif
-#ifndef LIBLD_STRTAB_SIZE
-#define LIBLD_STRTAB_SIZE 4096
+#ifndef LIBLD_DYNSTR_SIZE
+#define LIBLD_DYNSTR_SIZE 4096
 #endif
-#ifndef LIBLD_SYMTAB_SIZE
-#define LIBLD_SYMTAB_SIZE 4096
+#ifndef LIBLD_DYNSYM_SIZE
+#define LIBLD_DYNSYM_SIZE 4096
 #endif
 #ifndef LIBLD_TEXT_SIZE
 #define LIBLD_TEXT_SIZE (16*4096)
@@ -56,18 +57,24 @@ static char basic_dynstr[] = {
 	/* Offset 1 */ '.', 'f', 'o', 'o', '\0',
 	/* Offset 6 */ '_', 'D', 'Y', 'N', 'A', 'M', 'I', 'C', '\0' 
 };
-	
+
+#define DYNAMIC_HASH_IDX 0
+#define DYNAMIC_DYNSTR_IDX 1
+#define DYNAMIC_DYNSYM_IDX 2
+#define DYNAMIC_DEBUG_IDX 3
+#define DYNAMIC_LAST_IDX (DYNAMIC_DEBUG_IDX+1)
+
 static Elf64_Dyn basic_dynamic[] = { 
-	{ DT_HASH, { .d_ptr = 4096 } }, 
-	{ DT_STRTAB, { .d_ptr = 8192 } }, // text, data, rodata are each one page
-	{ DT_SYMTAB, { .d_ptr = 20480 } }, 
-	{ DT_DEBUG, { .d_ptr = 0 } }, 
-	{ DT_NULL }, 
+	[DYNAMIC_HASH_IDX]   = { DT_HASH, { .d_ptr = 4096 } }, 
+	[DYNAMIC_DYNSTR_IDX] = { DT_STRTAB, { .d_ptr = 8192 } }, // text, data, rodata are each one page
+	[DYNAMIC_DYNSYM_IDX] = { DT_SYMTAB, { .d_ptr = 20480 } }, 
+	[DYNAMIC_DEBUG_IDX]  = { DT_DEBUG, { .d_ptr = 0 } }, 
+	[DYNAMIC_LAST_IDX] =   { DT_NULL }
 };
 
 static void update_file(off_t *p_filepos, Elf *e)
 {
-	if ((*p_filepos = elf_update(e, ELF_C_NULL)) < 0) errx(EX_SOFTWARE, 
+	if ((*p_filepos = elf_update(e, ELF_C_WRITE)) < 0) errx(EX_SOFTWARE, 
 		"elf_update(NULL) failed: %s.",	elf_errmsg(-1));
 }
 
@@ -80,9 +87,9 @@ struct Ld_Entry
 	void *handle;
 	Elf64_Addr next_vaddr;
 	
-	char strtab[LIBLD_STRTAB_SIZE];
-	unsigned strtab_insert_pos;
-	Elf64_Half strtab_ndx;
+	char dynstr[LIBLD_DYNSTR_SIZE];
+	unsigned dynstr_insert_pos;
+	Elf64_Half dynstr_ndx;
 	
 	char text[LIBLD_TEXT_SIZE];
 	unsigned text_insert_pos;
@@ -96,7 +103,7 @@ struct Ld_Entry
 	unsigned rodata_insert_pos;
 	Elf64_Half rodata_ndx;
 	
-	char dynsym[LIBLD_SYMTAB_SIZE];
+	char dynsym[LIBLD_DYNSYM_SIZE];
 	unsigned dynsym_insert_pos;
 	Elf64_Half dynsym_ndx;
 } entries[LIBLD_MAX_CREATED_LIBRARIES];
@@ -114,27 +121,29 @@ void *libdl_handle(ld_handle_t lib)
 // static char basic_text[LIBLD_TEXT_SIZE];
 // static char basic_data[LIBLD_DATA_SIZE];
 // static char basic_rodata[LIBLD_RODATA_SIZE];
-// static char basic_dynsym[LIBLD_SYMTAB_SIZE];
-static Elf64_Addr issue_vaddr(Elf64_Addr *p_next_vaddr, unsigned align, unsigned memsz)
+// static char basic_dynsym[LIBLD_DYNSYM_SIZE];
+static Elf64_Addr issue_vaddr(Elf64_Addr *p_next_vaddr, unsigned align, unsigned memsz, off_t fileoff)
 {
-	// NOTE: align is *not* an exponent; it's the actual value
-	Elf64_Addr tmp;
-	if (*p_next_vaddr % align == 0)
-	{
-		tmp = *p_next_vaddr;
-		*p_next_vaddr += memsz;
-		return tmp;
-	}
-	else
-	{
-		Elf64_Addr tmp = *p_next_vaddr;
-		tmp += align;
-		tmp &= ~(align - 1);
-		assert(tmp % align == 0);
-		assert(tmp < *p_next_vaddr + align);
-		*p_next_vaddr = tmp + memsz;
-		return tmp;
-	}
+// 	// NOTE: align is *not* an exponent; it's the actual value
+// 	Elf64_Addr tmp;
+// 	if (*p_next_vaddr % align == 0)
+// 	{
+// 		tmp = *p_next_vaddr;
+// 		*p_next_vaddr += memsz;
+// 		return tmp;
+// 	}
+// 	else
+// 	{
+// 		Elf64_Addr tmp = *p_next_vaddr;
+// 		tmp += align;
+// 		tmp &= ~(align - 1);
+// 		assert(tmp % align == 0);
+// 		assert(tmp < *p_next_vaddr + align);
+// 		*p_next_vaddr = tmp + memsz;
+// 		return tmp;
+// 	}
+	*p_next_vaddr = fileoff + memsz;
+	return fileoff;
 }
 static Elf_Scn *create_section_and_header(off_t *p_filepos, Elf *e,
 	char *buf, size_t size, int data_type, int section_name_idx, int section_type, int section_flags,
@@ -142,7 +151,7 @@ static Elf_Scn *create_section_and_header(off_t *p_filepos, Elf *e,
 {
 	Elf_Scn *scn;
 	Elf_Data *data;
-	/* create a .hash section */
+	/* create a section */
 	off_t hash_start = *p_filepos;
 	if ((scn = elf_newscn(e)) == NULL) errx(EX_SOFTWARE, 
 		"elf_newscn() failed: %s.", elf_errmsg(-1));
@@ -156,7 +165,7 @@ static Elf_Scn *create_section_and_header(off_t *p_filepos, Elf *e,
 	data->d_size = size;
 	data->d_version = EV_CURRENT;
 
-	/* create a section header for .hash */
+	/* create a section header */
 	Elf64_Shdr *shdr;
 	if ((shdr = elf64_getshdr(scn)) == NULL) errx(EX_SOFTWARE, 
 		"elf64_getshdr() failed :%s.", elf_errmsg(-1));
@@ -166,10 +175,16 @@ static Elf_Scn *create_section_and_header(off_t *p_filepos, Elf *e,
 	shdr->sh_link = link;
 	shdr->sh_info = info;
 	shdr->sh_entsize = entsize;
-	shdr->sh_addr = issue_vaddr(p_next_vaddr, data->d_align, data->d_size);
-
-	/* write it to the file */
+	/* update the file; libelf should fill in the offset */
 	update_file(p_filepos, e);
+	off_t section_offset = shdr->sh_offset;
+	assert(*p_filepos >= section_offset);
+	/* fill in the vaddr */
+	Elf64_Addr vaddr = issue_vaddr(p_next_vaddr, data->d_align, data->d_size, section_offset);
+	shdr->sh_addr = vaddr;
+
+	/* assert that our shdr update took effect */
+	assert(elf64_getshdr(scn)->sh_addr == vaddr);
 	
 	return scn;
 }
@@ -189,10 +204,13 @@ ld_handle_t dlnew(const char *libname)
 
 	/* allocate an entry record */
 	struct Ld_Entry *ent = &entries[0];
-	while (ent->used)
+	while (ent->used && ent < &entries[LIBLD_MAX_CREATED_LIBRARIES])
 	{
 		ent++;
-		assert(ent < &entries[LIBLD_MAX_CREATED_LIBRARIES]);
+	}
+	if (ent == &entries[LIBLD_MAX_CREATED_LIBRARIES])
+	{
+		return NULL;
 	}
 	/* populate the entry */
 	strcpy(ent->filename, "/tmp/tmp.libld.XXXXXX");
@@ -203,15 +221,16 @@ ld_handle_t dlnew(const char *libname)
 	
 	ent->used = 1;
 	ent->fd = fd;
-	memcpy(ent->strtab, basic_dynstr, sizeof basic_dynstr);
-	ent->strtab_insert_pos = sizeof basic_dynstr;
+	
+	memcpy(ent->dynstr, basic_dynstr, sizeof basic_dynstr);
+	ent->dynstr_insert_pos = sizeof basic_dynstr;
 	
 	/* begin file */
 	// NOTES: libelf0 and libelf1 have different ABIs here. be careful!
 	// in particular, libelf1 has ELF_C_RDWR et al. We don't use those.
 	// Also, I think if we use ELF_C_WRITE, libelf1 will fail later on. FIXME.
 	
-	if ((e = elf_begin(fd, ELF_C_WRITE/*ELF_C_RDWR*//*_MMAP*//* 2 */, NULL)) == NULL) errx(EX_SOFTWARE, 
+	if ((e = elf_begin(fd, ELF_C_WRITE/*_MMAP*//* 2 */, NULL)) == NULL) errx(EX_SOFTWARE, 
 		"elf_begin() failed: %s.", elf_errmsg(-1));
 	ent->elf = e;
 
@@ -223,14 +242,16 @@ ld_handle_t dlnew(const char *libname)
 	ehdr->e_machine = EM_X86_64; /* 64-bit x86 object */
 	ehdr->e_type = ET_DYN; /* shared object */
 
+	/* FIXME: want to generate phdrs from SHF_ALLOC, sh_vaddr, sh_offset. */
 	/* create a phdr */
 	if ((phdr = elf64_newphdr(e, 1)) == NULL) errx(EX_SOFTWARE,
 		"elf64_newphdr() failed: %s.", elf_errmsg(-1));
 
-	create_section_and_header(&filepos, e, 
+	Elf_Scn *hash_scn = create_section_and_header(&filepos, e, 
 		(char*) hash_words, sizeof hash_words, ELF_T_WORD, 47 /* offset in shstrtab */, 
 		SHT_HASH, SHF_ALLOC, 4096, 0, 0, 0, 
 		&ent->next_vaddr);
+	Elf64_Addr hash_vaddr = elf64_getshdr(hash_scn)->sh_addr;
 	
 	Elf_Scn *shstrtab_scn = create_section_and_header(&filepos, e,
 			shstrtab, sizeof shstrtab, ELF_T_BYTE, 1 /* offset in shstrtab */,
@@ -241,9 +262,11 @@ ld_handle_t dlnew(const char *libname)
 
 	/* create a section for dynstr */
 	Elf_Scn *dynstr_scn = create_section_and_header(&filepos, e, 
-			ent->strtab, sizeof ent->strtab, ELF_T_BYTE, 39,
+			ent->dynstr, sizeof ent->dynstr, ELF_T_BYTE, 39,
 			SHT_STRTAB, SHF_STRINGS|SHF_ALLOC, 1, 0, 0, 0, 
 			&ent->next_vaddr);
+	Elf64_Addr dynstr_vaddr = elf64_getshdr(dynstr_scn)->sh_addr;
+	ent->dynstr_ndx = elf_ndxscn(dynstr_scn);
 	
 	/* create a section for text */
 	Elf_Scn *text_scn = create_section_and_header(&filepos, e,
@@ -270,12 +293,31 @@ ld_handle_t dlnew(const char *libname)
 			SHT_DYNSYM, SHF_ALLOC, 4096, sizeof (Elf64_Sym), elf_ndxscn(dynstr_scn), /* all global */ 0,
 			&ent->next_vaddr);
 	ent->dynsym_ndx = elf_ndxscn(dynsym_scn);
+	Elf64_Addr dynsym_vaddr = elf64_getshdr(dynsym_scn)->sh_addr;
 	
+	Elf64_Dyn our_dynamic[sizeof basic_dynamic / sizeof (Elf64_Dyn)];
+	memcpy(our_dynamic, basic_dynamic, sizeof basic_dynamic);
+	our_dynamic[DYNAMIC_HASH_IDX].d_un.d_ptr = hash_vaddr;
+	our_dynamic[DYNAMIC_DYNSTR_IDX].d_un.d_ptr = dynstr_vaddr;
+	our_dynamic[DYNAMIC_DYNSYM_IDX].d_un.d_ptr = dynsym_vaddr;
 	Elf_Scn *dynamic_scn = create_section_and_header(&filepos, e,
-			(char*) &basic_dynamic[0], sizeof basic_dynamic, ELF_T_DYN, 53,
+			(char*) &our_dynamic[0], sizeof our_dynamic, ELF_T_DYN, 53,
 			SHT_DYNAMIC, SHF_ALLOC, 4096, sizeof (Elf64_Dyn), 0, 0,
 			&ent->next_vaddr);
-	Elf64_Addr dynamic_vaddr = ent->next_vaddr - sizeof basic_dynamic;
+	off_t dynamic_filepos = elf64_getshdr(dynamic_scn)->sh_offset;
+	Elf64_Addr dynamic_vaddr = elf64_getshdr(dynamic_scn)->sh_addr;
+	
+	/* Make symbol table index 1 be the _DYNAMIC symbol. */
+	Elf_Data *dynsym_data = NULL;
+	dynsym_data = elf_getdata(dynsym_scn, dynsym_data);
+	((Elf64_Sym *) dynsym_data->d_buf)[1] = (Elf64_Sym) {
+		.st_name = 6,
+		.st_info = ELF64_ST_INFO(STB_LOCAL, STT_OBJECT),
+		.st_other = ELF64_ST_VISIBILITY(STV_DEFAULT),
+		.st_shndx = elf_ndxscn(dynamic_scn),
+		.st_value = dynamic_vaddr,
+		.st_size = elf64_getshdr(dynamic_scn)->sh_size
+	};
 
 	/* create phdr table with two entries */
 	if ((phdr = elf64_newphdr(e, 2)) == NULL) errx(EX_SOFTWARE,
@@ -290,7 +332,7 @@ ld_handle_t dlnew(const char *libname)
 	
 	/* populate phdr[1] -- make a PT_DYNAMIC */
 	phdr[1].p_type = PT_DYNAMIC;
-	phdr[1].p_offset = filepos - sizeof basic_dynamic;
+	phdr[1].p_offset = dynamic_filepos;
 	phdr[1].p_vaddr = dynamic_vaddr;
 	phdr[1].p_flags = PF_R;
 	phdr[1].p_filesz = sizeof basic_dynamic;
@@ -298,15 +340,27 @@ ld_handle_t dlnew(const char *libname)
 	phdr[1].p_memsz = sizeof basic_dynamic;
 	(void) elf_flagphdr(e, ELF_C_SET, ELF_F_DIRTY);
 	update_file(&filepos, e);
+
+	/* elf_end() the WRITE handlen and elf_begin a RDWR one */
+	elf_end(e);
+
+	if ((e = elf_begin(fd, ELF_C_RDWR/*_MMAP*//* 2 */, NULL)) == NULL) errx(EX_SOFTWARE, 
+		"elf_begin() failed: %s.", elf_errmsg(-1));
+
+	ent->elf = e;
+	ent->text_insert_pos = 0;
+
+	ent->data_insert_pos = 0;
 	
-	/* end the file -- what happens if we don't do this? */
-	(void) elf_end(e);
-	
+	ent->rodata_insert_pos = 0;
+
+	ent->dynsym_insert_pos = 2 * sizeof (Elf64_Sym);
+
 	// we delay closing the fd until dldelete
 	// but we do dlopen it!
 	ent->handle = dlopen(ent->filename, RTLD_NOW|RTLD_LOCAL|RTLD_NODELETE);
 	assert(ent->handle);
-	return ent->handle;
+	return ent;
 }	
 
 int dlbind(ld_handle_t lib, const char *symname, void *obj, size_t len, ...)
@@ -325,27 +379,27 @@ int dlbind(ld_handle_t lib, const char *symname, void *obj, size_t len, ...)
 	 
 	 * HACK: assume text for now! */
 
-	/* copy data */
+	/* copy data out of libelf's structures into our working buffer */
 	assert(lib->text_insert_pos + len < LIBLD_TEXT_SIZE);
 	memcpy(lib->text + lib->text_insert_pos, obj, len);
 	lib->text_insert_pos += len;
 	
 	/* add a string to the strtab */
-	unsigned strtab_inserted_pos = lib->strtab_insert_pos;
-	assert(lib->strtab_insert_pos + strlen(symname) + 1 < LIBLD_STRTAB_SIZE);
-	strcpy(lib->strtab + lib->strtab_insert_pos, symname);
-	lib->strtab_insert_pos += strlen(symname);
-	lib->strtab[lib->strtab_insert_pos] = '\0';
-	lib->strtab_insert_pos++;
+	unsigned dynstr_inserted_pos = lib->dynstr_insert_pos;
+	assert(lib->dynstr_insert_pos + strlen(symname) + 1 < LIBLD_DYNSTR_SIZE);
+	strcpy(lib->dynstr + lib->dynstr_insert_pos, symname);
+	lib->dynstr_insert_pos += strlen(symname);
+	lib->dynstr[lib->dynstr_insert_pos] = '\0';
+	lib->dynstr_insert_pos++;
 	
 	/* add a symbol to the dynsym */
-	assert(lib->dynsym_insert_pos + sizeof (Elf64_Sym)< LIBLD_SYMTAB_SIZE);
+	assert(lib->dynsym_insert_pos + sizeof (Elf64_Sym)< LIBLD_DYNSYM_SIZE);
 	*(Elf64_Sym*)(lib->dynsym + lib->dynsym_insert_pos) = (Elf64_Sym) {
-		  .st_name = strtab_inserted_pos,
+		  .st_name = dynstr_inserted_pos,
 		  .st_info = ELF64_ST_INFO(STT_FUNC, STB_GLOBAL),  /* Symbol type and binding */
 		  .st_other = STV_DEFAULT,    /* Symbol visibility */
 		  .st_shndx = lib->text_ndx,  /* Section index */
-		  .st_value = (Elf64_Addr) obj, /* Symbol value */
+		  .st_value = (Elf64_Addr) ((char*) obj - (char*) ((struct link_map *) lib->handle)->l_addr), /* Symbol value */
 		  .st_size = len              /* Symbol size */
 	};
 		  
@@ -355,12 +409,12 @@ int dlbind(ld_handle_t lib, const char *symname, void *obj, size_t len, ...)
 	Elf *e = lib->elf;
 
 	/* create a section for strtab */
-	if ((scn = elf_getscn(e, lib->strtab_ndx)) == NULL) errx (EX_SOFTWARE, 
+	if ((scn = elf_getscn(e, lib->dynstr_ndx)) == NULL) errx (EX_SOFTWARE, 
 		"elf_newscn() failed : %s.", elf_errmsg(-1));
 	/* create the strtab data */
 	if ((data = elf_getdata(scn, NULL)) == NULL) errx(EX_SOFTWARE, 
 		"elf_newdata() failed : %s.", elf_errmsg(-1));
-	data->d_buf = lib->strtab;
+	data->d_buf = lib->dynstr;
 	
 	/* .text */
 	if ((scn = elf_getscn (e, lib->text_ndx)) == NULL) errx(EX_SOFTWARE, 
@@ -395,8 +449,10 @@ int dlbind(ld_handle_t lib, const char *symname, void *obj, size_t len, ...)
 	data->d_buf = lib->dynsym; 
 	
 	/* write data so far */
-	if (elf_update(e, ELF_C_NULL) < 0) errx(EX_SOFTWARE, 
+	if (elf_update(e, ELF_C_WRITE) < 0) errx(EX_SOFTWARE, 
 		"elf_update(NULL) failed: %s.",	elf_errmsg(-1));
+	
+	/* FIXME: update hash section! */
 	
 	/* now close and reopen the library */
 	dlclose(lib->handle);
