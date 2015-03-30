@@ -6,22 +6,29 @@
 /* We extend the libdl interface with calls to dynamically create 
  * new libraries. */
 
-struct Ld_Entry;
-typedef struct Ld_Entry *ld_handle_t;
+//struct Ld_Entry;
+//typedef struct Ld_Entry *ld_handle_t;
+
+#define DT_LD_TEXTBUMP 0x6ffffee0
+#define DT_LD_RODATABUMP 0x6ffffee1
+#define DT_LD_DATABUMP 0x6ffffee2
 
 /* Create a new shared library in this address space. */
-ld_handle_t dlnew(const char *libname);
+void * dlnew(const char *libname);
+
+/* Allocate a chunk of space in the file. */
+void *dlalloc(void *l, size_t sz, unsigned flags);
 
 /* Create a new symbol binding within a library created using dlnew().
  * The varargs may be used to specify the namespace, calling convention
  * and version string. Note that these need only be meaningful for text
  * symbols. Whether the object belongs in text, data or rodata is inferred
  * from the flags of the memory object containing address obj. */
-int dlbind(ld_handle_t lib, const char *symname, void *obj, size_t len, ...);
+int dlbind(void *lib, const char *symname, void *obj, size_t len, ...);
 
 /* Closes and releases all resources associated with this handle. 
  * It must have been returned by dlnew(). */
-int dldelete(ld_handle_t);
+int dldelete(void *);
 
 /* Lookup a text symbol, accounting for namespace, calling convention
  * and version string. */
@@ -46,9 +53,5 @@ enum argument_options
 	                          i.e. */
 	MAX_PLUS_ONE = 8
 };
-
-/* HACKy helper: until we have unified libdl handles with libld handles,
- * provide a function to map between them. */
-void *libdl_handle(ld_handle_t);
 
 #endif

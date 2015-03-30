@@ -2,17 +2,15 @@ CC ?= gcc
 
 LDFLAGS += -L`pwd` -Wl,-R`pwd` 
 LDLIBS += -ldl -lelf
-CFLAGS += -g -fPIC -Wextra #-DHAVE_ELF_SETSHSTRNDX 
+CFLAGS += -std=c11 -g -fPIC -Wextra #-DHAVE_ELF_SETSHSTRNDX 
+CXXFLAGS += -std=gnu++14 -fpermissive
 
-default: libld.so libld.a test
-
-libld.o: libld.c
-	$(CC) $(CFLAGS) -c -o "$@" "$<"
+default: libld.a #test
 
 libld.so: libld.o
 	$(CC) $(CFLAGS) -shared -o "$@" "$<"
 
-libld.a: libld.o
+libld.a: libld.o symhash.o elfproto.o
 	ar r "$@" $^ 
 
 # Use the static version of libld for now, so we can ltrace -lelf

@@ -84,8 +84,19 @@ struct Ld_Entry
 	char filename[22] /* = "/tmp/tmp.libld.XXXXXX" */;
 	int fd;
 	Elf *elf;
-	void *handle;
+	struct link_map *handle;
+	void *last_alloc;
 	Elf64_Addr next_vaddr;
+	
+	/* HACK: rather than maintaining the in-file data ourselves, we 
+	 * use libelf and re-write the whole file at each update. This is 
+	 * inefficient but easier in the short term.
+	 * 
+	 * This means any content in the file has two addresses: its address
+	 * in our private buffers that we pass to libelf, and its address
+	 * in the loaded file (if loaded). We should never issue the private
+	 * buffers, but there's a problem: clients expect to be able to write
+	 * to this memory! */
 	
 	char dynstr[LIBLD_DYNSTR_SIZE];
 	unsigned dynstr_insert_pos;
@@ -217,7 +228,7 @@ ld_handle_t dlnew(const char *libname)
 	fd = mkostemp(ent->filename, O_RDWR|O_CREAT);
 	assert(fd != -1 && "mkstemp failed");
 	
-	// FIXME: set sparse file behaviour
+	// need to set sparse file behaviour? hopefully no; libelf should use lseek()
 	
 	ent->used = 1;
 	ent->fd = fd;
@@ -363,6 +374,30 @@ ld_handle_t dlnew(const char *libname)
 	return ent;
 }	
 
+/* Allocate a chunk of space in the file. */
+void *dlalloc(ld_handle_t lib, size_t len, unsigned flags)
+{
+	assert(lib->text_insert_pos + len < LIBLD_TEXT_SIZE);
+	/* We can only insert instructions, for now. */
+	assert(flags == SHF_EXECINSTR);
+	//lib->last_alloc = (char*) lib->handle->l_ld + (uintptr_t) lib->text_vaddr + lib->text_insert_pos;
+	lib->text_insert_pos += len;
+	return /*(char*) lib->text_vaddr + lib->last_alloc */ lib->text_insert_pos - len;
+}
+
+/* Allocate a chunk of space in the file. */
+void *dlrealloc(ld_handle_t lib, void *alloc, size_t len)
+{
+	if (alloc == lib->last_alloc)
+	{
+		/* okay, decrement */
+		//size_t old_size = lib->last_alloc
+		//lib->text_insert_pos -= (lib->text_insert_
+	}
+	//lib->text_insert_pos =  len;
+	return alloc;
+}
+
 int dlbind(ld_handle_t lib, const char *symname, void *obj, size_t len, ...)
 {
 	/* We write more stuff to our temporary ELF file, and reopen it,
@@ -378,11 +413,6 @@ int dlbind(ld_handle_t lib, const char *symname, void *obj, size_t len, ...)
 	 * and BOTH strtab and dynsym.
 	 
 	 * HACK: assume text for now! */
-
-	/* copy data out of libelf's structures into our working buffer */
-	assert(lib->text_insert_pos + len < LIBLD_TEXT_SIZE);
-	memcpy(lib->text + lib->text_insert_pos, obj, len);
-	lib->text_insert_pos += len;
 	
 	/* add a string to the strtab */
 	unsigned dynstr_inserted_pos = lib->dynstr_insert_pos;
