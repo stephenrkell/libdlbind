@@ -35,15 +35,7 @@ extern "C" {
  *   So we need to hack the loader so that it doesn't use MAP_PRIVATE.
  */
 
-#ifndef MAX_SYMS
-#define MAX_SYMS 65536
-#endif
-
-#ifndef NBUCKET
-#define NBUCKET 2048
-#endif
-
-#define DYNAMIC_N 12
+#define DYNAMIC_N 14
 #define RELA_DYN_N 1
 #define SHSTRTAB_SZ 128
 #define PHDRS_N 5
@@ -110,18 +102,18 @@ static Elf64_Phdr phdrs[]  __attribute__((section(".elf_zygote"))) = {
 		.p_memsz = sizeof dynamic,
 		.p_align = sizeof (void*)
 	},
-	(Elf64_Phdr) {
+	(Elf64_Phdr) { /* metadata mapping. Include the shdrs! dlbind() wants them. */
 		.p_type = PT_LOAD,
 		.p_flags = PF_R | PF_W,
-		.p_offset = (char*) &dynamic[0] - (char*) &ehdr,
-		.p_vaddr = (char*) &dynamic[0] - (char*) &ehdr,
-		.p_paddr = (char*) &dynamic[0] - (char*) &ehdr,
-		.p_filesz = (char*) &dynstr[DYNSTR_SZ] - (char*) &dynamic[0],
-		.p_memsz = (char*) &dynstr[DYNSTR_SZ] - (char*) &dynamic[0],
+		.p_offset = (char*) &shdrs[0] - (char*) &ehdr,
+		.p_vaddr = (char*) &shdrs[0] - (char*) &ehdr,
+		.p_paddr = (char*) &shdrs[0] - (char*) &ehdr,
+		.p_filesz = (char*) &dynstr[DYNSTR_SZ] - (char*) &shdrs[0],
+		.p_memsz = (char*) &dynstr[DYNSTR_SZ] - (char*) &shdrs[0],
 		.p_align = PAGE_SIZE
 	},
 	(Elf64_Phdr) {
-		.p_type = PT_LOAD,                 
+		.p_type = PT_LOAD,
 		.p_flags = PF_R | PF_X,
 		.p_offset = (char*) &first_user_word - (char*) &ehdr,
 		.p_vaddr = (char*) &first_user_word - (char*) &ehdr,
@@ -131,7 +123,7 @@ static Elf64_Phdr phdrs[]  __attribute__((section(".elf_zygote"))) = {
 		.p_align = PAGE_SIZE
 	},
 	(Elf64_Phdr) {
-		.p_type = PT_LOAD,                 
+		.p_type = PT_LOAD,
 		.p_flags = PF_R,
 		.p_offset = (char*) &first_user_word + TEXT_SZ - (char*) &ehdr,
 		.p_vaddr = (char*) &first_user_word + TEXT_SZ - (char*) &ehdr,
@@ -141,7 +133,7 @@ static Elf64_Phdr phdrs[]  __attribute__((section(".elf_zygote"))) = {
 		.p_align = PAGE_SIZE
 	},
 	(Elf64_Phdr) {
-		.p_type = PT_LOAD,                 
+		.p_type = PT_LOAD,
 		.p_flags = PF_R | PF_W,
 		.p_offset = (char*) &first_user_word + TEXT_SZ + RODATA_SZ - (char*) &ehdr,
 		.p_vaddr = (char*) &first_user_word + TEXT_SZ + RODATA_SZ - (char*) &ehdr,
@@ -334,6 +326,14 @@ static Elf64_Dyn dynamic[DYNAMIC_N] __attribute__((section(".elf_zygote"))) = {
 		.d_un = { d_val: shdrs[NDX_DATA].sh_addr }
 	},
 	(Elf64_Dyn) {
+		.d_tag = DT_LD_DYNSTRBUMP,
+		.d_un = { d_val: 17 }
+	},
+	(Elf64_Dyn) {
+		.d_tag = DT_LD_DYNSYMBUMP,
+		.d_un = { d_val: MAX_SYMS - 2 }
+	},
+	(Elf64_Dyn) {
 		.d_tag = DT_NULL,
 		.d_un = { d_val: 0 }
 	}
@@ -347,7 +347,15 @@ static Elf64_Sym dynsym[MAX_SYMS] __attribute__((section(".elf_zygote"))) = {
 		.st_shndx = 0,
 		.st_value = 0,
 		.st_size = 0
-	} /* , // do this in the init function, until g++ supports designated initializers
+	},
+	[1] = (Elf64_Sym) { // define a local symbol for the shdrs
+		.st_name = 10, /* _SHDRS */
+		.st_info = ELF64_ST_INFO(STB_GLOBAL, STT_OBJECT),
+		.st_other = ELF64_ST_VISIBILITY(STV_DEFAULT),
+		.st_shndx = SHN_ABS,
+		.st_value = phdrs[1].p_vaddr,
+		.st_size = sizeof shdrs
+	}, /* , // do this in the init function, until g++ supports designated initializers
 	
 	/*[MAX_SYMS - 1] = (Elf64_Sym) { // _DYNAMIC
 		.st_name = 1, 
@@ -382,9 +390,9 @@ static char shstrtab[SHSTRTAB_SZ] __attribute__((section(".elf_zygote"))) = {
 };
 
 static char dynstr[DYNSTR_SZ] __attribute__((section(".elf_zygote"))) = {
-	/* Offset 0 */ '\0',
-	/* Offset 1 */ '_', 'D', 'Y', 'N', 'A', 'M', 'I', 'C', '\0' 
-
+	/* Offset 0 */  '\0',
+	/* Offset 1 */  '_', 'D', 'Y', 'N', 'A', 'M', 'I', 'C', '\0',
+	/* Offset 10 */ '_', 'S', 'H', 'D', 'R', 'S', '\0'
 };
 
 static unsigned long first_user_word __attribute__((section(".elf_zygote")));
@@ -396,14 +404,18 @@ void *_ld_elfproto_begin = &ehdr;
 static void init(void) __attribute__((constructor));
 static void init(void)
 {	
-	dynsym[MAX_SYMS - 1] = (Elf64_Sym) { // _DYNAMIC
+	dynsym[MAX_SYMS - 1/* 2 */] = (Elf64_Sym) { // _DYNAMIC
 		.st_name = 1, 
-		.st_info = ELF64_ST_INFO(STB_GLOBAL, STT_NOTYPE),
+		.st_info = ELF64_ST_INFO(STB_GLOBAL, STT_OBJECT),
 		.st_other = ELF64_ST_VISIBILITY(STV_DEFAULT),
 		.st_shndx = NDX_DYNAMIC,
-		.st_value = shdrs[NDX_DYNAMIC].sh_addr,
+		.st_value = /* NO! can't do this, because C++ initialization and destruction
+		     is weird: shdrs is initialized by code. */ // shdrs[NDX_DYNAMIC].sh_addr,
+			 // duplicate the address calculation instead
+			 (char*) &dynamic[0] - (char*) &ehdr,
 		.st_size = sizeof dynamic
 	};
+	// _SHDRS is a local sym
 
 	elf64_hash_init(
 		(char *) &hash[0],            /* hash section */

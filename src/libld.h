@@ -9,12 +9,10 @@
 //struct Ld_Entry;
 //typedef struct Ld_Entry *ld_handle_t;
 
-#define DT_LD_TEXTBUMP 0x6ffffee0
-#define DT_LD_RODATABUMP 0x6ffffee1
-#define DT_LD_DATABUMP 0x6ffffee2
-
 /* Create a new shared library in this address space. */
-void * dlnew(const char *libname);
+void * dlcreate(const char *libname);
+
+void *dlreload(void *handle);
 
 /* Allocate a chunk of space in the file. */
 void *dlalloc(void *l, size_t sz, unsigned flags);
@@ -24,7 +22,7 @@ void *dlalloc(void *l, size_t sz, unsigned flags);
  * and version string. Note that these need only be meaningful for text
  * symbols. Whether the object belongs in text, data or rodata is inferred
  * from the flags of the memory object containing address obj. */
-int dlbind(void *lib, const char *symname, void *obj, size_t len, ...);
+void *dlbind(void *lib, const char *symname, void *obj, size_t len, Elf64_Word type);
 
 /* Closes and releases all resources associated with this handle. 
  * It must have been returned by dlnew(). */

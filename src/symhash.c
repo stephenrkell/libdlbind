@@ -61,9 +61,10 @@ bucket_lookup(Elf64_Word *buckets,
 {
 	/* Which bucket does the sym go in? */
 	unsigned bucket = elf64_hash(name) % nbucket;
+	Elf64_Word *chain = buckets + nbucket;
 	/* Find it */
 	Elf64_Word *pos = &buckets[bucket];
-	while (*pos != STN_UNDEF)
+	for (Elf64_Word *pos = &buckets[bucket]; *pos != STN_UNDEF; pos = &chain[*pos])
 	{
 		unsigned stroff = symtab[*pos].st_name;
 		if (0 == strcmp(strtab + stroff, name)) return *pos;
@@ -128,5 +129,29 @@ elf64_hash_put(
 	chain_sym(&words[2], nbucket, nsyms, key, symind);
 }
 
+Elf64_Sym *
+elf64_hash_get(
+	char *section,            /* has section */
+	size_t size,              /* hash section size in bytes */
+	unsigned nbucket,         /* nbucket -- must match existing section! */
+	unsigned nsyms,           /* symbol table entry count */
+	Elf64_Sym *symtab,    /* symbol table */
+	const char *strtab,
+	const char *key
+	)
+{	
+	/* nchain is nsyms */
+	Elf64_Word *words = (Elf64_Word *) section;
+	/* Assert that symname is not currently used */
+	unsigned pos = bucket_lookup(&words[2],
+			nbucket,
+			nsyms,
+			key,
+			symtab,
+			strtab
+		);
+	if (pos == STN_UNDEF) return NULL;
+	else return symtab + pos;
+}
 
 // elf_hash_del(
