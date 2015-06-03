@@ -1,5 +1,5 @@
-#ifndef LIBLD_SYMHASH_H_
-#define LIBLD_SYMHASH_H_
+#ifndef LIBDLBIND_SYMHASH_H_
+#define LIBDLBIND_SYMHASH_H_
 
 #include <elf.h>
 

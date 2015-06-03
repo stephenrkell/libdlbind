@@ -7,17 +7,17 @@ CFLAGS += -I$(LIBALLOCS_BASE)/include
 CXXFLAGS += -std=gnu++14 -fpermissive
 CXXFLAGS += -g3
 
-default: libld.a #test
+default: libdlbind.a #test
 
-libld.so: libld.o
+libdlbind.so: libdlbind.o
 	$(CC) $(CFLAGS) -shared -o "$@" "$<"
 
-libld.a: libld.o symhash.o elfproto.o
+libdlbind.a: libdlbind.o symhash.o elfproto.o
 	ar r "$@" $^ 
 
 # Use the static version of libld for now, so we can ltrace -lelf
-test: test.c libld.a
-	$(CC) $(CFLAGS) $(LDFLAGS) -o "$@" "$<" libld.a $(LDLIBS) #/usr/lib/libelf.so.0.8.13
+test: test.c libdlbind.a
+	$(CC) $(CFLAGS) $(LDFLAGS) -o "$@" "$<" libdlbind.a $(LDLIBS) #/usr/lib/libelf.so.0.8.13
 
 make clean:
-	rm -f *.o test libld.so libld.a
+	rm -f *.o test libdlbind.so libdlbind.a

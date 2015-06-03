@@ -8,7 +8,7 @@
 #include <dlfcn.h>
 #include <string.h>
 #include <link.h>
-#include "libld.h"
+#include "dlbind.h"
 
 int get_42(void)
 {

@@ -13,7 +13,7 @@
 #include <unistd.h>
 #include "elfproto.h"
 #include "symhash.h"
-#include "libld.h"
+#include "dlbind.h"
 #include "relf.h"
 
 char *strdup(const char *s); /* why is <string.h> not good enough for this? */
@@ -191,7 +191,7 @@ void *dlcreate(const char *libname)
 	// FIXME: pay attention to libname
 	/* Create a file, truncate it, mmap it */
 	// FIXME: use POSIX shared-memory interface with some pretence at portability
-	char filename[] = "/run/shm/tmp.libld.XXXXXX";
+	char filename[] = "/run/shm/tmp.dlbind.XXXXXX";
 	int fd = mkostemp(&filename[0], O_RDWR|O_CREAT);
 	assert(fd != -1);
 	/* Truncate the file to the necessary size */

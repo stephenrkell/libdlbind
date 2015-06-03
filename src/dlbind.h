@@ -1,5 +1,5 @@
-#ifndef LIBLD_H_
-#define LIBLD_H_
+#ifndef DLBIND_H_
+#define DLBIND_H_
 
 #include <stdlib.h>
 

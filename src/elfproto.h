@@ -1,5 +1,5 @@
-#ifndef LIBLD_ELFPROTO_H_
-#define LIBLD_ELFPROTO_H
+#ifndef LIBDLBIND_ELFPROTO_H_
+#define LIBDLBIND_ELFPROTO_H
 
 #include <stdlib.h>
 
