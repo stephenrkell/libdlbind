@@ -27,11 +27,11 @@ void *dlalloc(void *handle, size_t sz, unsigned flags)
 	{
 		case SHF_WRITE:
 			// use .data
-			dt_bump = DT_LD_DATABUMP;
+			dt_bump = DT_DLBIND_DATABUMP;
 			break;
 		case SHF_EXECINSTR:
 			// use .text:
-			dt_bump = DT_LD_TEXTBUMP;
+			dt_bump = DT_DLBIND_TEXTBUMP;
 			break;
 		
 		case (SHF_WRITE|SHF_EXECINSTR):
@@ -40,7 +40,7 @@ void *dlalloc(void *handle, size_t sz, unsigned flags)
 		
 		case 0:
 			// use .rodata:
-			dt_bump = DT_LD_RODATABUMP;
+			dt_bump = DT_DLBIND_RODATABUMP;
 			break;
 		
 		default:
@@ -73,8 +73,8 @@ void *dlbind(void *lib, const char *symname, void *obj, size_t len, ElfW(Word) t
 	Elf64_Dyn *found_dynstr_ent = dynamic_lookup(l->l_ld, DT_STRTAB);
 	Elf64_Dyn *found_hash_ent = dynamic_lookup(l->l_ld, DT_HASH);
 	/* What's the next free global symbol index? */
-	Elf64_Dyn *dynstr_bump_ent = dynamic_lookup(l->l_ld, DT_LD_DYNSTRBUMP);
-	Elf64_Dyn *dynsym_bump_ent = dynamic_lookup(l->l_ld, DT_LD_DYNSYMBUMP);
+	Elf64_Dyn *dynstr_bump_ent = dynamic_lookup(l->l_ld, DT_DLBIND_DYNSTRBUMP);
+	Elf64_Dyn *dynsym_bump_ent = dynamic_lookup(l->l_ld, DT_DLBIND_DYNSYMBUMP);
 
 	unsigned strind = dynstr_bump_ent->d_un.d_val;
 	char *dynstr_insertion_pt = (char*) found_dynstr_ent->d_un.d_ptr 
@@ -195,13 +195,13 @@ void *dlcreate(const char *libname)
 	int fd = mkostemp(&filename[0], O_RDWR|O_CREAT);
 	assert(fd != -1);
 	/* Truncate the file to the necessary size */
-	int ret = ftruncate(fd, _ld_elfproto_memsz);
+	int ret = ftruncate(fd, _dlbind_elfproto_memsz);
 	assert(ret == 0);
-	void *addr = mmap(NULL, _ld_elfproto_memsz, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
+	void *addr = mmap(NULL, _dlbind_elfproto_memsz, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
 	assert(addr != MAP_FAILED);
 	/* Copy in the ELF proto (FIXME: better sparseness) */
-	memcpy(addr, _ld_elfproto_begin, _ld_elfproto_stored_sz);
-	munmap(addr, _ld_elfproto_memsz);
+	memcpy(addr, _dlbind_elfproto_begin, _dlbind_elfproto_stored_sz);
+	munmap(addr, _dlbind_elfproto_memsz);
 	close(fd);
 	/* dlopen the file */
 	struct link_map *handle = dlopen(filename, RTLD_NOW | RTLD_GLOBAL/* | RTLD_NODELETE*/);

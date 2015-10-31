@@ -7,7 +7,19 @@ CFLAGS += -I$(LIBALLOCS_BASE)/include
 CXXFLAGS += -std=gnu++14 -fpermissive
 CXXFLAGS += -g3
 
+CC_DEPS := $(patsubst %.cc,.%.d,$(wildcard *.cc))
+C_DEPS := $(patsubst %.c,.%.d,$(wildcard *.c))
+
+DEPS := $(CC_DEPS) $(C_DEPS)
+
 default: libdlbind.a #test
+
+.%.d: %.c
+	$(CC) $(CFLAGS) -c -MM "$<" > "$@" || rm -f "$@"
+.%.d: %.cc
+	$(CXX) $(CXXFLAGS) -c -MM "$<" > "$@" || rm -f "$@"
+
+-include $(DEPS)
 
 libdlbind.so: libdlbind.o
 	$(CC) $(CFLAGS) -shared -o "$@" "$<"

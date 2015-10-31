@@ -314,23 +314,23 @@ static Elf64_Dyn dynamic[DYNAMIC_N] __attribute__((section(".elf_zygote"))) = {
 		.d_un = { d_val: sizeof dynstr }
 	},
 	(Elf64_Dyn) {
-		.d_tag = DT_LD_TEXTBUMP,
+		.d_tag = DT_DLBIND_TEXTBUMP,
 		.d_un = { d_ptr: shdrs[NDX_TEXT].sh_addr }
 	},
 	(Elf64_Dyn) {
-		.d_tag = DT_LD_RODATABUMP,
+		.d_tag = DT_DLBIND_RODATABUMP,
 		.d_un = { d_val: shdrs[NDX_RODATA].sh_addr }
 	},
 	(Elf64_Dyn) {
-		.d_tag = DT_LD_DATABUMP,
+		.d_tag = DT_DLBIND_DATABUMP,
 		.d_un = { d_val: shdrs[NDX_DATA].sh_addr }
 	},
 	(Elf64_Dyn) {
-		.d_tag = DT_LD_DYNSTRBUMP,
+		.d_tag = DT_DLBIND_DYNSTRBUMP,
 		.d_un = { d_val: 17 }
 	},
 	(Elf64_Dyn) {
-		.d_tag = DT_LD_DYNSYMBUMP,
+		.d_tag = DT_DLBIND_DYNSYMBUMP,
 		.d_un = { d_val: MAX_SYMS - 2 }
 	},
 	(Elf64_Dyn) {
@@ -397,9 +397,9 @@ static char dynstr[DYNSTR_SZ] __attribute__((section(".elf_zygote"))) = {
 
 static unsigned long first_user_word __attribute__((section(".elf_zygote")));
 
-size_t _ld_elfproto_stored_sz;
-size_t _ld_elfproto_memsz;
-void *_ld_elfproto_begin = &ehdr;
+size_t _dlbind_elfproto_stored_sz;
+size_t _dlbind_elfproto_memsz;
+void *_dlbind_elfproto_begin = &ehdr;
 
 static void init(void) __attribute__((constructor));
 static void init(void)
@@ -425,6 +425,6 @@ static void init(void)
 		&dynsym[0],
 		&dynstr[0]
 	);
-	_ld_elfproto_stored_sz = ((uintptr_t) &first_user_word - (uintptr_t) &ehdr);
-	_ld_elfproto_memsz = _ld_elfproto_stored_sz + TEXT_SZ + DATA_SZ + RODATA_SZ;
+	_dlbind_elfproto_stored_sz = ((uintptr_t) &first_user_word - (uintptr_t) &ehdr);
+	_dlbind_elfproto_memsz = _dlbind_elfproto_stored_sz + TEXT_SZ + DATA_SZ + RODATA_SZ;
 }
