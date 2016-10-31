@@ -18,6 +18,9 @@
 
 char *strdup(const char *s); /* why is <string.h> not good enough for this? */
 
+/* Out-of-band signalling for detecting dlopening. */
+__thread const char *dlbind_open_active_on __attribute__((visibility("hidden")));
+
 /* Allocate a chunk of space in the file. */
 void *dlalloc(void *handle, size_t sz, unsigned flags)
 {
@@ -176,7 +179,9 @@ void *dlreload(void *h)
 	/* signal to the debugger */
 	// ((void(*)(void)) r_brk)();
 	
+	dlbind_open_active_on = copied;
 	void *new_handle = dlopen(copied, RTLD_NOW | RTLD_GLOBAL /*| RTLD_NODELETE*/);
+	dlbind_open_active_on = NULL;
 	assert(new_handle);
 	
 	/* signal to the debugger */
@@ -204,7 +209,9 @@ void *dlcreate(const char *libname)
 	munmap(addr, _dlbind_elfproto_memsz);
 	close(fd);
 	/* dlopen the file */
+	dlbind_open_active_on = filename;
 	struct link_map *handle = dlopen(filename, RTLD_NOW | RTLD_GLOBAL/* | RTLD_NODELETE*/);
+	dlbind_open_active_on = NULL;
 	assert(handle);
 	return handle;
 }

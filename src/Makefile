@@ -4,6 +4,7 @@ LDFLAGS += -L`pwd` -Wl,-R`pwd`
 LDLIBS += -ldl -lelf
 CFLAGS += -std=c11 -g -fPIC -Wextra #-DHAVE_ELF_SETSHSTRNDX 
 CFLAGS += -I$(LIBALLOCS_BASE)/include
+CFLAGS += -I../include
 CXXFLAGS += -std=gnu++14 -fpermissive
 CXXFLAGS += -g3
 
