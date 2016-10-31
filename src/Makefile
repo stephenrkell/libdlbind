@@ -6,7 +6,7 @@ CFLAGS += -std=c11 -g -fPIC -Wextra #-DHAVE_ELF_SETSHSTRNDX
 CFLAGS += -I$(LIBALLOCS_BASE)/include
 CFLAGS += -I../include
 CXXFLAGS += -std=gnu++14 -fpermissive
-CXXFLAGS += -g3
+CXXFLAGS += -g3 -fPIC
 
 CC_DEPS := $(patsubst %.cc,.%.d,$(wildcard *.cc))
 C_DEPS := $(patsubst %.c,.%.d,$(wildcard *.c))
