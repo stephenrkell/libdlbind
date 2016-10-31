@@ -1,6 +1,6 @@
 LDFLAGS += -L../../src
 LDLIBS += -ldlbind -lelf -ldl
-CFLAGS += -g -Wextra -I../../src
+CFLAGS += -g -Wextra -I../../include
 
 default: elfproto-simple
 

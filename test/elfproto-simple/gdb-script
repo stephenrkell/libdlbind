@@ -1,6 +1,6 @@
 break main
 run
-break dlopen_doit
+break dlopen
 cont
 catch syscall open
 catch syscall mmap
