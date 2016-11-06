@@ -109,13 +109,12 @@ elf64_hash_put(
 	// the empty string is always in the table
 	if (*key == '\0') return;
 	
-	/* nchain is nsyms */
-	Elf64_Word *words = (Elf64_Word *) section;
-	
 	/* Assert that symname is not currently used */
-	assert(STN_UNDEF == bucket_lookup(&words[2],
+	Elf64_Word *words = (Elf64_Word *) section;
+	Elf64_Word *buckets = words + 2;
+	assert(STN_UNDEF == bucket_lookup(buckets,
 			nbucket,
-			nsyms,
+			nsyms, /* nchain is nsyms */
 			key,
 			symtab,
 			strtab
@@ -126,7 +125,7 @@ elf64_hash_put(
 	
 	
 	/* Chain it. */
-	chain_sym(&words[2], nbucket, nsyms, key, symind);
+	chain_sym(buckets, nbucket, nsyms, key, symind);
 }
 
 Elf64_Sym *
