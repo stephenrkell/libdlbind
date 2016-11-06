@@ -20,6 +20,8 @@ char *strdup(const char *s); /* why is <string.h> not good enough for this? */
 
 /* Out-of-band signalling for detecting dlopening. */
 __thread const char *dlbind_open_active_on __attribute__((visibility("hidden")));
+/* Remove this once weak thread-locals actually work! */
+int dlbind_dummy __attribute__((visibility("hidden")));
 
 /* Allocate a chunk of space in the file. */
 void *dlalloc(void *handle, size_t sz, unsigned flags)

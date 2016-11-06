@@ -3,6 +3,9 @@
 
 #include <stdlib.h>
 
+/* For forcing init (for early-startup usage). */
+void __libdlbind_do_init(void);
+
 /* We extend the libdl interface with calls to dynamically create 
  * new libraries. */
 
