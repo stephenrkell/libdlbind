@@ -3,7 +3,7 @@
 default: symlinks
 
 symlinks:
-	ln -s ../src/libdlbind.a .
+	ln -sf ../src/libdlbind.a .
 
 clean:
 	rm -f libdlbind.a
