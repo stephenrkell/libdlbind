@@ -1,0 +1,8 @@
+syntax: glob
+blah
+concept
+concept.works
+*.a
+*.o
+*.so
+test
