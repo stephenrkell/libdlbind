@@ -198,7 +198,9 @@ void *dlcreate(const char *libname)
 	// FIXME: pay attention to libname
 	/* Create a file, truncate it, mmap it */
 	// FIXME: use POSIX shared-memory interface with some pretence at portability
-	char filename[] = "/run/shm/tmp.dlbind.XXXXXX";
+	char filename0[] = "/run/shm/tmp.dlbind.XXXXXX";
+	char filename1[] = "/tmp/tmp.dlbind.XXXXXX";
+	char *filename = (0 == access("/run/shm", R_OK|W_OK|X_OK)) ? filename0 : filename1;
 	int fd = mkostemp(&filename[0], O_RDWR|O_CREAT);
 	assert(fd != -1);
 	/* Truncate the file to the necessary size */
