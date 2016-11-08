@@ -126,7 +126,7 @@ void *dlbind(void *lib, const char *symname, void *obj, size_t len, ElfW(Word) t
 		.st_value = preceding_shdr ? (uintptr_t) obj - l->l_addr : (uintptr_t) obj,
 		.st_size = len
 	};
-	dynsym_bump_ent->d_un.d_val++;
+	dynsym_bump_ent->d_un.d_val--;
 	
 	elf64_hash_put(
 		(char*) found_hash_ent->d_un.d_ptr,    /* hash section */
@@ -166,14 +166,25 @@ void *dlreload(void *h)
 	 * BUT ld.so also relocates certain d_ptr values in the .dynamic section. 
 	 * So undo that bit. */
 	Elf64_Dyn *found_dynsym_ent = dynamic_lookup(l->l_ld, DT_SYMTAB);
-	found_dynsym_ent->d_un.d_ptr -= l->l_addr; 
+	if ((char*) found_dynsym_ent->d_un.d_ptr >= (char*) l->l_addr)
+	{
+		found_dynsym_ent->d_un.d_ptr -= l->l_addr;
+	}
 	Elf64_Dyn *found_dynstr_ent = dynamic_lookup(l->l_ld, DT_STRTAB);
-	found_dynstr_ent->d_un.d_ptr -= l->l_addr; 
+	if ((char*) found_dynstr_ent->d_un.d_ptr >= (char*) l->l_addr)
+	{
+		found_dynstr_ent->d_un.d_ptr -= l->l_addr; 
+	}
 	Elf64_Dyn *found_hash_ent = dynamic_lookup(l->l_ld, DT_HASH);
-	found_hash_ent->d_un.d_ptr -= l->l_addr; 
+	if ((char*) found_hash_ent->d_un.d_ptr >= (char*) l->l_addr)
+	{
+		found_hash_ent->d_un.d_ptr -= l->l_addr; 
+	}
 	Elf64_Dyn *found_rela_ent = dynamic_lookup(l->l_ld, DT_RELA);
-	found_rela_ent->d_un.d_ptr -= l->l_addr; 
-	
+	if ((char*) found_rela_ent->d_un.d_ptr >= (char*) l->l_addr)
+	{
+		found_rela_ent->d_un.d_ptr -= l->l_addr; 
+	}
 	dlclose(l);
 	
 	// void *r_brk = find_r_debug()->r_brk;
