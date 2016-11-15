@@ -1,6 +1,8 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <elf.h>
+#include <string.h>
+#include <assert.h>
 #include "symhash.h"
 #include "elfproto.h"
 
@@ -61,11 +63,13 @@ char shstrtab[SHSTRTAB_SZ] __attribute__((visibility("hidden"),section(".elf_zyg
 	/* Offset 53 */ '.', 'd', 'y', 'n', 'a', 'm', 'i', 'c', '\0',
 	/* Offset 62 */ '.', 'r', 'e', 'l', 'a', '.', 'd', 'y', 'n', '\0'
 };
-char dynstr[DYNSTR_SZ] __attribute__((visibility("hidden"),section(".elf_zygote")))= {
+char dynstr_used[] __attribute__((visibility("hidden"),section(".elf_zygote"))) = {
 	/* Offset 0 */  '\0',
 	/* Offset 1 */  '_', 'D', 'Y', 'N', 'A', 'M', 'I', 'C', '\0',
-	/* Offset 10 */ '_', 'S', 'H', 'D', 'R', 'S', '\0'
+	/* Offset 10 */ '_', 'S', 'H', 'D', 'R', 'S', '\0' /* first zero offset: 17 (update below!) */
 };
+char dynstr_unused[DYNSTR_SZ - sizeof dynstr_used] __attribute__((visibility("hidden"),section(".elf_zygote")));
+
 unsigned long first_user_word __attribute__((visibility("hidden"),section(".elf_zygote")));
 
 #ifndef TEXT_SZ
@@ -85,7 +89,7 @@ unsigned long first_user_word __attribute__((visibility("hidden"),section(".elf_
 #endif
 
 /* globals */
-size_t _dlbind_elfproto_stored_sz;
+size_t _dlbind_elfproto_headerscn_sz;
 size_t _dlbind_elfproto_memsz;
 void *_dlbind_elfproto_begin;
 
@@ -136,8 +140,8 @@ static void init(void)
 			.p_offset = (uintptr_t) &shdrs[0] - (uintptr_t) &ehdr,
 			.p_vaddr = (uintptr_t) &shdrs[0] - (uintptr_t) &ehdr,
 			.p_paddr = (uintptr_t) &shdrs[0] - (uintptr_t) &ehdr,
-			.p_filesz = (uintptr_t) &dynstr[DYNSTR_SZ] - (uintptr_t) &shdrs[0],
-			.p_memsz = (uintptr_t) &dynstr[DYNSTR_SZ] - (uintptr_t) &shdrs[0],
+			.p_filesz = (uintptr_t) &dynstr_used[0] + DYNSTR_SZ - (uintptr_t) &shdrs[0],
+			.p_memsz = (uintptr_t) &dynstr_used[0] + DYNSTR_SZ - (uintptr_t) &shdrs[0],
 			.p_align = PAGE_SIZE
 		};
 	phdrs[2] = (Elf64_Phdr) {
@@ -260,9 +264,9 @@ static void init(void)
 			.sh_name = 39,
 			.sh_type = SHT_STRTAB,
 			.sh_flags = SHF_ALLOC,
-			.sh_addr = (uintptr_t) &dynstr[0] - (uintptr_t) &ehdr,
-			.sh_offset = (uintptr_t) &dynstr[0] - (uintptr_t) &ehdr,
-			.sh_size = sizeof dynstr,
+			.sh_addr = (uintptr_t) &dynstr_used[0] - (uintptr_t) &ehdr,
+			.sh_offset = (uintptr_t) &dynstr_used[0] - (uintptr_t) &ehdr,
+			.sh_size = DYNSTR_SZ,
 			.sh_link = 0,
 			.sh_info = 0,
 			.sh_addralign = 1,
@@ -338,7 +342,7 @@ static void init(void)
 		};
 	dynamic[7] = (Elf64_Dyn) {
 			.d_tag = DT_STRSZ,
-			.d_un = { d_val: sizeof dynstr }
+			.d_un = { d_val: DYNSTR_SZ }
 		};
 	dynamic[8] = (Elf64_Dyn) {
 			.d_tag = DT_DLBIND_TEXTBUMP,
@@ -418,12 +422,37 @@ static void init(void)
 		NBUCKET,         /* nbucket */
 		MAX_SYMS,
 		&dynsym[0],
-		&dynstr[0]
+		&dynstr_used[0]
 	);
-	_dlbind_elfproto_stored_sz = ((uintptr_t) &first_user_word - (uintptr_t) &ehdr);
-	_dlbind_elfproto_memsz = _dlbind_elfproto_stored_sz + TEXT_SZ + DATA_SZ + RODATA_SZ;
+	_dlbind_elfproto_headerscn_sz = ((uintptr_t) &first_user_word - (uintptr_t) &ehdr);
+	_dlbind_elfproto_memsz = _dlbind_elfproto_headerscn_sz + TEXT_SZ + DATA_SZ + RODATA_SZ;
 	_dlbind_elfproto_begin = &ehdr;
 	done_init = 1;
+}
+
+void memcpy_elfproto_to(void *dest)
+{
+	/* Copy in the ELF proto contents. We don't need to copy the actual sections
+	 * area, which should all be zero. And be even more clever about sparseness,
+	 * since large parts of the hash, dynsym and dynstr are initially zeroed too. */
+	
+	size_t offset0 = (char*) &dynsym[2] - (char*) &ehdr;
+	size_t offset1 = (char*) &dynsym[MAX_SYMS - 1] - (char*) &ehdr;
+	size_t offset2 = (char*) &hash[2 + NBUCKET + 2] - (char*) &ehdr;
+	size_t offset3 = (char*) &hash[2 + NBUCKET + MAX_SYMS - 1] - (char*) &ehdr;
+	size_t offset4 = &dynstr_used[0] + sizeof dynstr_used - (char*) &ehdr;
+	size_t offset5 = &dynstr_used[0] + DYNSTR_SZ - (char*) &ehdr;
+	size_t offset6 = (char*) &first_user_word - (char*) &ehdr;
+	assert(offset6 < _dlbind_elfproto_memsz);
+	
+	// first chunk is up to dynsym's first two symbols
+	memcpy(        dest,           _dlbind_elfproto_begin, offset0);
+	// second chunk is from dynsym's last symbol to the hash chain entry for the first two symbols
+	memcpy((char*) dest + offset1, _dlbind_elfproto_begin + offset1, offset2 - offset1);
+	// third chunk is from the hash entry for the hash chain entry for the last symbol to the end of dynstr_used
+	memcpy((char*) dest + offset3, _dlbind_elfproto_begin + offset3, offset4 - offset3);
+	// fourth chunk is from the end of dynstr to the first user word
+	memcpy((char*) dest + offset5, _dlbind_elfproto_begin + offset5, offset6 - offset5);
 }
 
 #ifdef __cplusplus

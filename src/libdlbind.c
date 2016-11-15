@@ -14,6 +14,7 @@
 #include "elfproto.h"
 #include "symhash.h"
 #include "dlbind.h"
+#include "dlbind_internal.h"
 #include "relf.h"
 
 char *strdup(const char *s); /* why is <string.h> not good enough for this? */
@@ -159,12 +160,14 @@ extern void _dl_debug_state(void);
 void *dlreload(void *h)
 {
 	struct link_map *l = (struct link_map *) h;
+	void *old_load_addr = (void*) l->l_addr;
 	char *copied = strdup(l->l_name);
 	
 	/* Un-relocate any relocations applied by ld.so. 
 	 * We didn't create any relocation records, so we are mostly okay. 
 	 * BUT ld.so also relocates certain d_ptr values in the .dynamic section. 
 	 * So undo that bit. */
+#ifndef FAKE_RELOAD
 	Elf64_Dyn *found_dynsym_ent = dynamic_lookup(l->l_ld, DT_SYMTAB);
 	if ((char*) found_dynsym_ent->d_un.d_ptr >= (char*) l->l_addr)
 	{
@@ -186,20 +189,28 @@ void *dlreload(void *h)
 		found_rela_ent->d_un.d_ptr -= l->l_addr; 
 	}
 	dlclose(l);
-	
-	// void *r_brk = find_r_debug()->r_brk;
-
-	/* signal to the debugger */
-	// ((void(*)(void)) r_brk)();
-	
 	dlbind_open_active_on = copied;
 	void *new_handle = dlopen(copied, RTLD_NOW | RTLD_GLOBAL /*| RTLD_NODELETE*/);
 	dlbind_open_active_on = NULL;
 	assert(new_handle);
+#else /* FAKE_RELOAD */
+	struct link_map *old_handle = l;
+	void *new_handle = old_handle;
+	void (*r_brk)(void) = (void*) find_r_debug()->r_brk;
+
+	/* Temporarily remove it from the linked list and signal to the debugger.
+	 * HACK: this is racy. */
+	if (old_handle->l_prev) old_handle->l_prev->l_next = old_handle->l_next;
+	if (old_handle->l_next) old_handle->l_next->l_prev = old_handle->l_prev;
+	r_brk();
 	
-	/* signal to the debugger */
-	// ((void(*)(void)) r_brk)();
-	
+	/* Now put it back and signal again. HACK again. */
+	if (old_handle->l_prev) old_handle->l_prev->l_next = old_handle;
+	if (old_handle->l_next) old_handle->l_next->l_prev = old_handle;
+	r_brk();
+#endif
+	/* It's important we get the old load address back. */
+	assert((void*) ((struct link_map *) new_handle)->l_addr == (old_load_addr));
 	free(copied);
 	return new_handle;
 }
@@ -219,8 +230,10 @@ void *dlcreate(const char *libname)
 	assert(ret == 0);
 	void *addr = mmap(NULL, _dlbind_elfproto_memsz, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
 	assert(addr != MAP_FAILED);
-	/* Copy in the ELF proto (FIXME: better sparseness) */
-	memcpy(addr, _dlbind_elfproto_begin, _dlbind_elfproto_stored_sz);
+	/* Copy in the ELF proto contents. We don't need to copy the actual sections
+	 * area, which should all be zero. And be even more clever about sparseness,
+	 * since large parts of the  dynsym and dynstr are initially zeroed too. */
+	memcpy_elfproto_to(addr);
 	munmap(addr, _dlbind_elfproto_memsz);
 	close(fd);
 	/* dlopen the file */

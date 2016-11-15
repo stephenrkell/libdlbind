@@ -20,7 +20,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-extern size_t _dlbind_elfproto_stored_sz;
+extern size_t _dlbind_elfproto_headerscn_sz;
 extern size_t _dlbind_elfproto_memsz;
 extern void *_dlbind_elfproto_begin;
 #ifdef __cplusplus
