@@ -61,7 +61,7 @@ void *dlalloc(void *handle, size_t sz, unsigned flags)
 		{
 			void *ret = (char*) d->d_un.d_ptr;
 			*((char**) &d->d_un.d_ptr) += sz;
-			return (void*)(l->l_addr + ret);
+			return (void*)((uintptr_t) l->l_addr + ret);
 		}
 	}
 	
@@ -125,7 +125,7 @@ void *dlbind(void *lib, const char *symname, void *obj, size_t len, ElfW(Word) t
 		.st_info = ELF64_ST_INFO(STB_GLOBAL, type),
 		.st_other = ELF64_ST_VISIBILITY(STV_DEFAULT),
 		.st_shndx = preceding_shdr ? (preceding_shdr - shdr) : SHN_ABS,
-		.st_value = preceding_shdr ? (uintptr_t) obj - l->l_addr : (uintptr_t) obj,
+		.st_value = preceding_shdr ? (uintptr_t) obj - (uintptr_t) l->l_addr : (uintptr_t) obj,
 		.st_size = len
 	};
 	dynsym_bump_ent->d_un.d_val--;
@@ -172,22 +172,22 @@ void *dlreload(void *h)
 	Elf64_Dyn *found_dynsym_ent = dynamic_lookup(l->l_ld, DT_SYMTAB);
 	if ((char*) found_dynsym_ent->d_un.d_ptr >= (char*) l->l_addr)
 	{
-		found_dynsym_ent->d_un.d_ptr -= l->l_addr;
+		found_dynsym_ent->d_un.d_ptr -= (uintptr_t) l->l_addr;
 	}
 	Elf64_Dyn *found_dynstr_ent = dynamic_lookup(l->l_ld, DT_STRTAB);
 	if ((char*) found_dynstr_ent->d_un.d_ptr >= (char*) l->l_addr)
 	{
-		found_dynstr_ent->d_un.d_ptr -= l->l_addr; 
+		found_dynstr_ent->d_un.d_ptr -= (uintptr_t) l->l_addr; 
 	}
 	Elf64_Dyn *found_hash_ent = dynamic_lookup(l->l_ld, DT_HASH);
 	if ((char*) found_hash_ent->d_un.d_ptr >= (char*) l->l_addr)
 	{
-		found_hash_ent->d_un.d_ptr -= l->l_addr; 
+		found_hash_ent->d_un.d_ptr -= (uintptr_t) l->l_addr; 
 	}
 	Elf64_Dyn *found_rela_ent = dynamic_lookup(l->l_ld, DT_RELA);
 	if ((char*) found_rela_ent->d_un.d_ptr >= (char*) l->l_addr)
 	{
-		found_rela_ent->d_un.d_ptr -= l->l_addr; 
+		found_rela_ent->d_un.d_ptr -= (uintptr_t) l->l_addr; 
 	}
 	dlclose(l);
 	dlbind_open_active_on = copied;
