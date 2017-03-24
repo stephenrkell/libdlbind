@@ -11,6 +11,7 @@
 #include <string.h>
 #include <link.h>
 #include <unistd.h>
+#include <sys/statvfs.h>
 #include "elfproto.h"
 #include "symhash.h"
 #include "dlbind.h"
@@ -111,11 +112,11 @@ void *dlbind(void *lib, const char *symname, void *obj, size_t len, ElfW(Word) t
 	Elf64_Shdr *preceding_shdr = NULL;
 	for (Elf64_Shdr *i_shdr = shdr; i_shdr < shdr + n_shdrs; ++i_shdr)
 	{
-		char *shdr_addr = (char*) l->l_addr + shdr->sh_addr;
-		if (shdr_addr < (char*) obj
+		char *shdr_addr = (char*) l->l_addr + i_shdr->sh_addr;
+		if (shdr_addr <= (char*) obj
 			&& (!preceding_shdr || shdr_addr > (char*) l->l_addr + preceding_shdr->sh_addr))
 		{
-			preceding_shdr = shdr;
+			preceding_shdr = i_shdr;
 		}
 	}
 	
@@ -215,6 +216,20 @@ void *dlreload(void *h)
 	return new_handle;
 }
 
+static _Bool path_is_viable(const char *path)
+{
+	_Bool can_access = (0 == access(path, R_OK|W_OK|X_OK));
+	if (!can_access) return 0;
+	
+	struct statvfs buf;
+	int ret = statvfs(path, &buf);
+	if (ret != 0) return 0;
+	if (buf.f_flag & ST_RDONLY) return 0;
+	if (buf.f_flag & ST_NOEXEC) return 0;
+	
+	return 1;
+}
+
 void *dlcreate(const char *libname)
 {
 	// FIXME: pay attention to libname
@@ -222,7 +237,7 @@ void *dlcreate(const char *libname)
 	// FIXME: use POSIX shared-memory interface with some pretence at portability
 	char filename0[] = "/run/shm/tmp.dlbind.XXXXXX";
 	char filename1[] = "/tmp/tmp.dlbind.XXXXXX";
-	char *filename = (0 == access("/run/shm", R_OK|W_OK|X_OK)) ? filename0 : filename1;
+	char *filename = path_is_viable("/run/shm/.") ? filename0 : filename1;
 	int fd = mkostemp(&filename[0], O_RDWR|O_CREAT);
 	assert(fd != -1);
 	/* Truncate the file to the necessary size */
