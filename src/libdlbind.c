@@ -83,23 +83,32 @@ void *dlbind(void *lib, const char *symname, void *obj, size_t len, ElfW(Word) t
 	Elf64_Dyn *dynstr_bump_ent = dynamic_lookup(l->l_ld, DT_DLBIND_DYNSTRBUMP);
 	Elf64_Dyn *dynsym_bump_ent = dynamic_lookup(l->l_ld, DT_DLBIND_DYNSYMBUMP);
 
+	/* Sometimes .dynamic entries are relocated, sometimes they're not.
+	 * FIXME: understand when this does and doesn't happen.
+	 * FIXME: seems to be a risk of double-relocation if we do the reloc ourselves.
+	 * Let's try it anyway.
+	 */
+#define FIXUP_PTR(p, base) \
+	((uintptr_t) (p) > (uintptr_t) (base) \
+		? (void*)(p) \
+		: (void*)((*((uintptr_t *) &(p)) = ((uintptr_t)(base) + (uintptr_t)(p)))))
+
 	unsigned strind = dynstr_bump_ent->d_un.d_val;
-	char *dynstr_insertion_pt = (char*) found_dynstr_ent->d_un.d_ptr 
-			+ strind;
+	char *dynstr_insertion_pt = (char*) FIXUP_PTR(found_dynstr_ent->d_un.d_ptr, l->l_addr) + strind;
 	unsigned symind = dynsym_bump_ent->d_un.d_val;
-	Elf64_Sym *dynsym_insertion_pt = (Elf64_Sym *) found_dynsym_ent->d_un.d_ptr 
+	Elf64_Sym *dynsym_insertion_pt = (Elf64_Sym *) FIXUP_PTR(found_dynsym_ent->d_un.d_ptr, l->l_addr) 
 			+ symind;
 	
 	strcpy(dynstr_insertion_pt, symname);
 	dynstr_bump_ent->d_un.d_val += strlen(symname) + 1;
 
 	Elf64_Sym *shdr_sym = elf64_hash_get(
-		(char*) found_hash_ent->d_un.d_ptr, 
+		(char*) FIXUP_PTR(found_hash_ent->d_un.d_ptr, l->l_addr),
 		(2 + NBUCKET + MAX_SYMS) * sizeof (Elf64_Word),
 		NBUCKET,
 		MAX_SYMS,
-		(Elf64_Sym*) found_dynsym_ent->d_un.d_ptr,
-		(char*) found_dynstr_ent->d_un.d_ptr,
+		(Elf64_Sym*) FIXUP_PTR(found_dynsym_ent->d_un.d_ptr, l->l_addr),
+		(char*) FIXUP_PTR(found_dynstr_ent->d_un.d_ptr, l->l_addr),
 		"_SHDRS"
 	);
 	assert(shdr_sym);
@@ -131,12 +140,12 @@ void *dlbind(void *lib, const char *symname, void *obj, size_t len, ElfW(Word) t
 	dynsym_bump_ent->d_un.d_val--;
 	
 	elf64_hash_put(
-		(char*) found_hash_ent->d_un.d_ptr,    /* hash section */
+		(char*) FIXUP_PTR(found_hash_ent->d_un.d_ptr, l->l_addr),    /* hash section */
 		(2 + NBUCKET + MAX_SYMS) * sizeof (Elf64_Word), /* hash section size in bytes */
 		NBUCKET,                       /* nbucket -- must match existing section! */
 		MAX_SYMS,                      /* symbol table entry count */
-		(Elf64_Sym*) found_dynsym_ent->d_un.d_ptr,  /* symbol table */
-		(char*) found_dynstr_ent->d_un.d_ptr,
+		(Elf64_Sym*) FIXUP_PTR(found_dynsym_ent->d_un.d_ptr, l->l_addr),  /* symbol table */
+		(char*) FIXUP_PTR(found_dynstr_ent->d_un.d_ptr, l->l_addr),
 		symind           /* assume this symind was unused previously! */
 	);
 
