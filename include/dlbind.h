@@ -14,7 +14,7 @@ void *dlcreate(const char *libname);
 
 void *dlreload(void *handle);
 
-/* Allocate a chunk of space in the file. */
+/* Allocate a chunk of space in the file. The flags are SHF_* flags. */
 void *dlalloc(void *l, size_t sz, unsigned flags);
 
 /* Create a new symbol binding within a library created using dlnew().
