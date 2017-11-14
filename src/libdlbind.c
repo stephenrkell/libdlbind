@@ -188,7 +188,44 @@ void *dlreload(void *h)
 	{
 		found_rela_ent->d_un.d_ptr -= (uintptr_t) l->l_addr; 
 	}
-	dlclose(l);
+	int failed = dlclose(l);
+	_Bool still_loaded = 0;
+	/* We might not actually have been unloaded. In particular, if we have dlsym()'d
+	 * any of the contents of the object, ld.so remembers the "dependency" and can
+	 * mark our object as RTLD_NODELETE. So check whether we were really unloaded,
+	 * and if not, undo the un-relocation we just did, because the next dlopen will
+	 * NOT go through the relocation step. FIXME: this is racy. */
+	if (!failed) for (struct link_map *test_l = _r_debug.r_map; test_l; test_l = test_l->l_next)
+	{
+		if (l == test_l)
+		{
+			/* We didn't actually get unloaded. */
+			still_loaded = 1;
+		}
+	}
+	if (failed || still_loaded)
+	{
+		/* Okay. Undo the un-relocation. */
+		if ((char*) found_dynsym_ent->d_un.d_ptr < (char*) l->l_addr)
+		{
+			found_dynsym_ent->d_un.d_ptr += (uintptr_t) l->l_addr;
+		}
+		Elf64_Dyn *found_dynstr_ent = dynamic_lookup(l->l_ld, DT_STRTAB);
+		if ((char*) found_dynstr_ent->d_un.d_ptr < (char*) l->l_addr)
+		{
+			found_dynstr_ent->d_un.d_ptr += (uintptr_t) l->l_addr;
+		}
+		Elf64_Dyn *found_hash_ent = dynamic_lookup(l->l_ld, DT_HASH);
+		if ((char*) found_hash_ent->d_un.d_ptr < (char*) l->l_addr)
+		{
+			found_hash_ent->d_un.d_ptr += (uintptr_t) l->l_addr;
+		}
+		Elf64_Dyn *found_rela_ent = dynamic_lookup(l->l_ld, DT_RELA);
+		if ((char*) found_rela_ent->d_un.d_ptr < (char*) l->l_addr)
+		{
+			found_rela_ent->d_un.d_ptr += (uintptr_t) l->l_addr;
+		}
+	}
 	dlbind_open_active_on = copied;
 	void *new_handle = dlopen(copied, RTLD_NOW | RTLD_GLOBAL /*| RTLD_NODELETE*/);
 	dlbind_open_active_on = NULL;
