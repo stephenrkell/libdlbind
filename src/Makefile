@@ -5,6 +5,9 @@ LDLIBS += -ldl -lelf
 CFLAGS += -std=c11 -g -fPIC -Wextra #-DHAVE_ELF_SETSHSTRNDX 
 CFLAGS += -I$(LIBALLOCS_BASE)/include
 CFLAGS += -I../include
+ifneq ($(DEBUG),1)
+CFLAGS += -DNDEBUG
+endif
 CXXFLAGS += -std=gnu++14 -fpermissive
 CXXFLAGS += -g3 -fPIC
 
