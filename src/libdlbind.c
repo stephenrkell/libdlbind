@@ -276,8 +276,14 @@ static _Bool path_is_viable(const char *path)
 	return 1;
 }
 
+#define DLCREATE_MAX 16
+static unsigned next_free_unlink_entry;
+static const char *unlink_list[DLCREATE_MAX];
+
 void *dlcreate(const char *libname)
 {
+	if (next_free_unlink_entry == DLCREATE_MAX) return NULL;
+	// FIXME: proper error handling in this function (and file) please
 	// FIXME: pay attention to libname
 	/* Create a file, truncate it, mmap it */
 	// FIXME: use POSIX shared-memory interface with some pretence at portability
@@ -286,6 +292,7 @@ void *dlcreate(const char *libname)
 	char *filename = path_is_viable("/run/shm/.") ? filename0 : filename1;
 	int fd = mkostemp(&filename[0], O_RDWR|O_CREAT);
 	assert(fd != -1);
+	unlink_list[next_free_unlink_entry++] = strdup(filename);
 	/* Truncate the file to the necessary size */
 	int ret = ftruncate(fd, _dlbind_elfproto_memsz);
 	assert(ret == 0);
@@ -302,6 +309,20 @@ void *dlcreate(const char *libname)
 	struct link_map *handle = dlopen(filename, RTLD_NOW | RTLD_GLOBAL/* | RTLD_NODELETE*/);
 	dlbind_open_active_on = NULL;
 	assert(handle);
+
+	/* We can't unlink the file because we need it to be visible in the
+	 * fs namespace, e.g. for debuggers. However, we want to unlink it
+	 * when the program exits or when it is dlclose()d. HACK / FIXME:
+	 * for now we just use a destructor to unlink it when the program exits. */
+
 	return handle;
 }
 
+static void unlink_all(void) __attribute__((destructor));
+static void unlink_all(void)
+{
+	for (unsigned i = 0; i < next_free_unlink_entry; ++i)
+	{
+		unlink(unlink_list[i]);
+	}
+}
