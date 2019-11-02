@@ -5,7 +5,7 @@ Its main use-case is in JIT compilers, or other run-time code
 generators. Rather than allocating code memory yourself, allocating it
 with dlbind keeps the dynamic loader informed -- along with any debugger
 that might be attached. This means that your JITted code and data are
-automatically debuggable just like any other dynamically loaded content.
+debuggable "by default" just like any other dynamically loaded content.
 It also means that the usual dlsym() and dladdr() interfaces will work
 against your JITted output.
 
@@ -16,30 +16,35 @@ with some caveats:
 
 - no deallocation or unbinding yet;
 
-- when defining a new symbol, the dlreload() call, necessary for symbol
-binding, doesn't quite work without some modifications to the dynamic
-loader or debugger. In particular, since we need in-memory changes to
-persist across a close-open sequence, we have two options.
+- when defining a new symbol, the dlreload() call, necessary for
+introducing the new symbols, requires some instrumentation of the
+dynamic linker or and/or modifications to the debugger. To do this
+introduction, the linker looks for a "change in the link map". To signal
+this, we have two options.
 
- (1) don't really close the file, hence keeping the mappings in memory,
-     but make the debugger re-read the symbols anyway;
+ (1) really unload (unmap) and reload (re-open/mmap) the file;
 
- (2) close and reopen the file. 
+ (2) don't really close the file (hence keeping the mappings in memory),
+     but make the debugger re-read the symbols anyway.
 
-To make (1) work, we need to make the debugger think that the link map
-has changed. We can do this by temporarily removing our object from the
-doubly-linked list, but that requires changing the loader (since
-RTLD_NODELETE leaves the object in the link map even when the refcount
-is zero). Or we can do it by changing the debugger to be more
-conservative and (correctly) avoid assuming that an unchanged link map
-means unchanged symbol tables. The loader modifications are less
-invasive, and probably justify a new dlopen() flag, say RTLD_RELOADABLE,
-that removes and re-inserts across a 1-0-1 refcount transition (and that
-fakes the same remove-reinsert on an explicit dlreload(), even if the
-refcount does not go down).
+To make (2) work, we need to make the debugger think that the link map
+has changed even when it hasn't, i.e. to be more conservative and
+(correctly) avoid assuming that an unchanged link map means unchanged
+symbol tables. This is probably the "right way" but means extending the
+protocol between dynamic linker and debugger. This is not done yet.
 
-To make (2) work, we need to hope that we get the same mapping addresses
-when we re-map, and we need changes to the memory mappings to persist.
-We can do this by trapping the mmap() calls made by the loader and
-clearing the MAP_PRIVATE flag. This is what our gdb-script
-<test/elfproto-simple/gdb-script> does, and shows correct operation.
+Fortunately we can make (1) work already. The main caveat is that we
+rely on getting the same object base address when we do the re-load...
+currently this seems to work on glibc's ld.so. To ensure data written to
+the file persists across close/reopen, we also require (logically) a
+modified dynamic linker, so that the mmap() calls it makes for libdlbind
+objects request MAP_SHARED rather than MAP_PRIVATE semantics. As a
+quick-and-dirty solution, we can trap these syscalls and tweak the
+flags. This is what our gdb-script <test/elfproto-simple/gdb-script>
+does, as a minimal demo of correct operation. In liballocs
+<https://github.com/stephenrkell/liballocs/>, the same idea is used but
+the syscall trapping is automated and happens online. Medium-term, a
+modified dynamic linker created with libgerald
+<https://github.com/stephenrkell/libgerald/> will be a more robust
+solution... most readily for tweaking the mmap flags, but also allowing
+us to implement the RTLD_RELOADABLE extension mentioned above.
