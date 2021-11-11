@@ -262,7 +262,7 @@ void do_reload(void *h)
 	/* It's important we get the old load address back. */
 	assert((void*) ((struct link_map *) new_handle)->l_addr == (old_load_addr));
 	free(copied);
-	return new_handle;
+	// return new_handle;
 }
 
 static _Bool path_is_viable(const char *path)

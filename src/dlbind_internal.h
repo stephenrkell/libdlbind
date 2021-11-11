@@ -25,7 +25,7 @@
  * hysteresis, and/or to whitelist which code is allowed
  * to do writes. */
 #ifndef TEXT_WRITABLE_VADDR_DELTA
-#define TEXT_WRITABLE_VADDR_DELTA 33554432
+#define TEXT_WRITABLE_VADDR_DELTA 67108864
 #endif
 
 extern __thread const char *dlbind_open_active_on __attribute__((visibility("hidden")));
