@@ -1,0 +1,37 @@
+We don't currently have automated tests.
+
+This is because libdlbind needs syscall trapping to work. We have this in
+liballocs, which can successfully use libdlbind, but not yet in a
+freestanding libdlbind.
+
+We use system call trapping to intercept open() when dlopen() is active from
+dlcreate(), and change O_RDONLY to O_RDWR. Similarly we changea MAP_PRIVATE
+to MAP_SHARED. Unlike a normal DSO, our object is a temporary and we really
+want changes to it to be visible on disk.
+
+The Right Thing is for the dynamic linker to offer the libdlbind API. The
+Next-Best Thing is for us to make libsystrap a submodule of libdlbind, and
+provide a build that does the necessary trapping/rewriting.
+
+Is this a hack or a concept? It's more concept than hack. Currently,
+debuggers like gdb assume that they can read ELF metadata from binaries on
+disk, because it won't have changed in-memory. We do change it, which is why
+we need our changes to be reflected on disk, hence MAP_SHARED. We can think
+of this as mapping the files in 'persistent image' mode, and that this is
+sane because the temporary object is private to our application. In
+MAP_PRIVATE, we are also requesting effectively a 'private copy', and the
+difference is that that private copy is anonymous. Clearly it *should* have a
+name. Any DSO could be opened in 'persistent mode', in which case it is
+logically copied to a named temporary file rather than MAP_PRIVATE'ing the
+'prototypical' DSO.
+
+For this 'temporary' file, maybe a delimited subrange of /proc/nnn/core would
+be good enough if we could name that subrange as a file in its own right.
+Ideally we would delimit it in terms of allocation names rather than byte
+extents.
+
+Perhaps Oscar-style 'MAP_SHARED for MAP_PRIVATE' would allow us to give a
+temporary name to *every* privately-copied file range? i.e. a novel
+implementation of MAP_PRIVATE that is backed by a named temporary. By default
+we would unlink the temporary, but it could be salvaged via the magic
+/proc/pid/fd/nnn symlinks.

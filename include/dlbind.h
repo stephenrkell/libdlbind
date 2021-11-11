@@ -2,6 +2,7 @@
 #define DLBIND_H_
 
 #include <stdlib.h>
+#include <elf.h>
 
 /* For forcing init (for early-startup usage). */
 void __libdlbind_do_init(void);
@@ -12,20 +13,20 @@ void __libdlbind_do_init(void);
 /* Create a new shared library in this address space. */
 void *dlcreate(const char *libname);
 
-void *dlreload(void *handle);
-
 /* Allocate a chunk of space in the file. The flags are SHF_* flags. */
 void *dlalloc(void *l, size_t sz, unsigned flags);
 
 /* Create a new symbol binding within a library created using dlnew().
- * The varargs may be used to specify the namespace, calling convention
+ * FIXME: maybe by varargs, allow specifying the namespace, calling convention
  * and version string. Note that these need only be meaningful for text
- * symbols. Whether the object belongs in text, data or rodata is inferred
- * from the flags of the memory object containing address obj. */
+ * symbols.
+ * Currently this returns the reloaded handle. We shouldn't push
+ * reloading onto clients. */
 void *dlbind(void *lib, const char *symname, void *obj, size_t len, Elf64_Word type);
 
 /* Closes and releases all resources associated with this handle. 
- * It must have been returned by dlnew(). */
+ * It must have been returned by dlcreate(). */
+// FIXME: this is not implemented. Instead we unlink everything in a destructor
 int dldelete(void *);
 
 /* Lookup a text symbol, accounting for namespace, calling convention

@@ -26,6 +26,8 @@ __thread const char *dlbind_open_active_on __attribute__((visibility("hidden")))
 /* Remove this once weak thread-locals actually work! */
 int dlbind_dummy __attribute__((visibility("hidden")));
 
+static void do_reload(void *h);
+
 /* Allocate a chunk of space in the file. */
 void *dlalloc(void *handle, size_t sz, unsigned flags)
 {
@@ -154,13 +156,23 @@ void *dlbind(void *lib, const char *symname, void *obj, size_t len, ElfW(Word) t
 //
 // 	unsigned nlocal = shdr->sh_info;
 
-	return dlreload(l);
+	do_reload(l);
+	return l; // dlreload(l);
 }
 
 extern void _dl_debug_state(void);
 
-void *dlreload(void *h)
+static
+void do_reload(void *h)
 {
+	/* Unless FAKE_RELOAD is defined, we really do (potentially)
+	 * unload and reload the object. This is the easiest for
+	 * debuggers to grok. But it potentially moves the object,
+	 * which is bad for clients.
+	 * If FAKE_RELOAD is defined, we instead remove it from
+ 	 * the link map (behind the ld.so's back), call the r_brk
+	 * function, then relink it. This will not move the object,
+	 * but I think I never got it working as intended with gdb. */
 	struct link_map *l = (struct link_map *) h;
 	void *old_load_addr = (void*) l->l_addr;
 	char *copied = strdup(l->l_name);
@@ -329,3 +341,4 @@ static void unlink_all(void)
 		unlink(unlink_list[i]);
 	}
 }
+

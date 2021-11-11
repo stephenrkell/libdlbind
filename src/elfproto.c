@@ -5,6 +5,7 @@
 #include <assert.h>
 #include "symhash.h"
 #include "elfproto.h"
+#include "dlbind_internal.h"
 
 /* We define the basic headers and structure of the ELF file
  * we're instantiating.
@@ -33,7 +34,7 @@
 #define DYNAMIC_N 14
 #define RELA_DYN_N 1
 #define SHSTRTAB_SZ 128
-#define PHDRS_N 5
+#define PHDRS_N 6
 #define SHDRS_N 10
 #define DYNSTR_SZ (256 * MAX_SYMS)
 
@@ -71,22 +72,6 @@ char dynstr_used[] __attribute__((visibility("hidden"),section(".elf_zygote"))) 
 char dynstr_unused[DYNSTR_SZ - sizeof dynstr_used] __attribute__((visibility("hidden"),section(".elf_zygote")));
 
 unsigned long first_user_word __attribute__((visibility("hidden"),section(".elf_zygote")));
-
-#ifndef TEXT_SZ
-#define TEXT_SZ 33554432
-#endif
-
-#ifndef DATA_SZ
-#define DATA_SZ 16777216
-#endif
-
-#ifndef RODATA_SZ
-#define RODATA_SZ 8388608
-#endif
-
-#ifndef PAGE_SIZE
-#define PAGE_SIZE 4096
-#endif
 
 /* globals */
 size_t _dlbind_elfproto_headerscn_sz;
@@ -172,6 +157,16 @@ static void init(void)
 			.p_paddr = (uintptr_t) &first_user_word + TEXT_SZ + RODATA_SZ - (uintptr_t) &ehdr,
 			.p_filesz = DATA_SZ, // could implement bss here
 			.p_memsz = DATA_SZ,
+			.p_align = PAGE_SIZE
+		};
+	phdrs[5] = (Elf64_Phdr) { // writable mapping of text
+			.p_type = PT_LOAD,
+			.p_flags = PF_R | PF_W,
+			.p_offset = (uintptr_t) &first_user_word - (uintptr_t) &ehdr,
+			.p_vaddr = (uintptr_t) &first_user_word - (uintptr_t) &ehdr + TEXT_WRITABLE_VADDR_DELTA,
+			.p_paddr = (uintptr_t) &first_user_word - (uintptr_t) &ehdr + TEXT_WRITABLE_VADDR_DELTA,
+			.p_filesz = TEXT_SZ,
+			.p_memsz = TEXT_SZ,
 			.p_align = PAGE_SIZE
 		};
 	// };
