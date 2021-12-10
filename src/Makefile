@@ -11,6 +11,8 @@ endif
 CXXFLAGS += -std=gnu++14 -fpermissive
 CXXFLAGS += -g3 -fPIC
 
+CFLAGS += -DFAKE_RELOAD
+
 CC_DEPS := $(patsubst %.cc,.%.d,$(wildcard *.cc))
 C_DEPS := $(patsubst %.c,.%.d,$(wildcard *.c))
 

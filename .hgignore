@@ -6,3 +6,4 @@ concept.works
 *.o
 *.so
 test
+example/example
