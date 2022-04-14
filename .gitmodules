@@ -1,0 +1,3 @@
+[submodule "contrib/libsystrap"]
+	path = contrib/libsystrap
+	url = https://github.com/stephenrkell/libsystrap.git
