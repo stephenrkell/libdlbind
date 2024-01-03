@@ -304,41 +304,23 @@ void *dlcreate(const char *libname)
 	 * since large parts of the  dynsym and dynstr are initially zeroed too. */
 	memcpy_elfproto_to(addr);
 	munmap(addr, _dlbind_elfproto_memsz);
-	close(fd);
 	/* dlopen the file */
-	dlbind_open_active_on = filename;
-	struct link_map *handle = dlopen(filename, RTLD_NOW | RTLD_GLOBAL/* | RTLD_NODELETE*/);
+	char *proc_filename = NULL;
+	struct link_map *handle = NULL;
+	ret = asprintf(&proc_filename, "/proc/%d/fd/%d", getpid(), fd);
+	if (ret <= 0) goto out;
+	assert(proc_filename != NULL);
+	dlbind_open_active_on = proc_filename;
+	handle = dlopen(proc_filename, RTLD_NOW | RTLD_GLOBAL/* | RTLD_NODELETE*/);
 	dlbind_open_active_on = NULL;
-	/* We can't unlink the file because we need it to be visible in the
-	 * fs namespace, e.g. for debuggers. However, we want to unlink it
-	 * when the program exits or when it is dlclose()d.
-	 * HACK / FIXME: for now we just use a destructor to unlink it when
-	 * the program exits (see unlink_all() below).
-	 *
-	 * If it weren't for debuggers, ideally we would now:
-	 * - unlink the filename
-	 * - keep the fd
-	 * - when we dlreopen, do so using the fd.
-	 * This is probably one for when runtld/libgerald are more developed,
-	 * so that we can rely on having a dlopen_from_fd call.
-	 *
-	 * BUT to solve the debugger problem we really want to keep the file
-	 * addressable but not in a way that persists. We can set the l_name to
-	 * any filename we like. Some variation on /proc/pid/core would be enough,
-	 * but alas I don't know of anything that would work.
-	 */
-	if (!handle) err(1, "dlopening %s", filename);
-
-
+	unlink(filename);
+	/* At this point, the fd remains open but the file is unlinked. Cleanup
+	 * problem solved! We can still access it through the magic /proc symlink.
+	 * And so can the debugger! FIXME: this is too Linux-specific for my liking.
+	 * FIXME: do the close() in dldelete(), rather than having it hang around
+	 * until the process exits. */
+out:
+	if (!handle) { close(fd); err(1, "dlopening %s (really %s)", filename, proc_filename); }
+	if (proc_filename) free(proc_filename);
 	return handle;
 }
-
-static void unlink_all(void) __attribute__((destructor));
-static void unlink_all(void)
-{
-	for (unsigned i = 0; i < next_free_unlink_entry; ++i)
-	{
-		unlink(unlink_list[i]);
-	}
-}
-

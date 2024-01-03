@@ -13,7 +13,11 @@ example: LDFLAGS += -fno-lto -L../lib -Llibsystrap/lib -L$(LIBRUNT_DIR)/lib \
  -Wl,--defsym,__private_realloc=realloc
 example: LDLIBS += -ldlbind -lsystrap -Wl,--push-state -Wl,-static -lrunt -Wl,--pop-state -ldl
 
-example: dlmalloc.o private-strdup.o
+example: dlmalloc.o private-strdup.o ../lib/libdlbind.a
 
 .PHONY: default
 default: example
+
+.PHONY: clean
+clean:
+	rm -f example *.o

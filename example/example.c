@@ -195,6 +195,10 @@ int main(void)
 	int v = func();
 	printf("libdlbind-loaded function returned: %d\n", v);
 
+	// sleep
+	printf("sleeping so you can attach a debugger if you like...\n");
+	sleep(10);
+
 	// FIXME: reinstate a dldelete call.
 	// dldelete
 	// dldelete(l);
