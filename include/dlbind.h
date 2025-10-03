@@ -13,6 +13,9 @@ void __libdlbind_do_init(void);
 /* Create a new shared library in this address space. */
 void *dlcreate(const char *libname);
 
+/* The same, but providing an mmap function */
+void *dlcreate_with_mmap(const char *libname, void*(*mmap)(void *, size_t, int, int, int, off_t));
+
 /* Allocate a chunk of space in the file. The flags are SHF_* flags. */
 void *dlalloc(void *l, size_t sz, unsigned flags);
 

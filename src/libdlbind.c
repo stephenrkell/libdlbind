@@ -281,7 +281,8 @@ static _Bool path_is_viable(const char *path)
 static unsigned next_free_unlink_entry;
 static const char *unlink_list[DLCREATE_MAX];
 
-void *dlcreate(const char *libname)
+void *dlcreate_with_mmap(const char *libname, void*(*mmap)(void */*addr*/, size_t /*length*/,
+   int /*prot*/, int /*flags*/, int /*fd*/, off_t /*offset*/))
 {
 	if (next_free_unlink_entry == DLCREATE_MAX) return NULL;
 	// FIXME: proper error handling in this function (and file) please
@@ -297,6 +298,9 @@ void *dlcreate(const char *libname)
 	/* Truncate the file to the necessary size */
 	int ret = ftruncate(fd, _dlbind_elfproto_memsz);
 	if (ret != 0) err(1, "truncating %s to %ld bytes", filename, _dlbind_elfproto_memsz);
+	/* The relatively large mapping is a problem for the liballocs + ecfs use case,
+	 * because we get many extraneous megabytes in our coredump. Perhaps we can
+	 * supply an alternative mmap function here? */
 	void *addr = mmap(NULL, _dlbind_elfproto_memsz, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
 	if (addr == MAP_FAILED) err(1, "mapping %s", filename);
 	/* Copy in the ELF proto contents. We don't need to copy the actual sections
@@ -323,4 +327,9 @@ out:
 	if (!handle) { close(fd); err(1, "dlopening %s (really %s)", filename, proc_filename); }
 	if (proc_filename) free(proc_filename);
 	return handle;
+}
+
+void *dlcreate(const char *libname)
+{
+	return dlcreate_with_mmap(libname, mmap);
 }
