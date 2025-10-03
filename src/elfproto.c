@@ -36,7 +36,8 @@
 #define SHSTRTAB_SZ 128
 #define PHDRS_N 6
 #define SHDRS_N 10
-#define DYNSTR_SZ (256 * MAX_SYMS)
+#define AVERAGE_SYM_LENGTH 10
+#define DYNSTR_SZ (AVERAGE_SYM_LENGTH * MAX_SYMS)
 
 // forward-declare everything up-front, so that we can cross-refer
 /* FIXME: forward-declaration requires us to use "extern" but then "static".
@@ -69,9 +70,17 @@ char dynstr_used[] __attribute__((visibility("hidden"),section(".elf_zygote"))) 
 	/* Offset 1 */  '_', 'D', 'Y', 'N', 'A', 'M', 'I', 'C', '\0',
 	/* Offset 10 */ '_', 'S', 'H', 'D', 'R', 'S', '\0' /* first zero offset: 17 (update below!) */
 };
-char dynstr_unused[DYNSTR_SZ - sizeof dynstr_used] __attribute__((visibility("hidden"),section(".elf_zygote")));
-
-unsigned long first_user_word __attribute__((visibility("hidden"),section(".elf_zygote")));
+//char dynstr_unused[DYNSTR_SZ - sizeof dynstr_used] __attribute__((visibility("hidden"),section(".elf_zygote")));
+/* FIXME: this is a lot of zeroes. Can we make this NOBITS and
+ * put it in an adjoining NOBITS section? Requires the client
+ * to link us in a particular way. Better just to reduce the
+ * number of zeroes. XXX: actually this is stupid. We memcpy
+ * the zygote in pieces anyway. So making a single contiguous
+ * in-memory .elf_zygote section that models it is pointless.
+ * Just drop this and instead record separately the offset from
+ * end of dynstr_used to first_user_word. */
+//unsigned long first_user_word __attribute__((visibility("hidden"),section(".elf_zygote")));
+#define OFFSET_TO_FIRST_USER_WORD (((uintptr_t) &dynstr_used[0] - (uintptr_t) &ehdr) + DYNSTR_SZ)
 
 /* globals */
 size_t _dlbind_elfproto_headerscn_sz;
@@ -132,9 +141,9 @@ static void init(void)
 	phdrs[2] = (Elf64_Phdr) {
 			.p_type = PT_LOAD,
 			.p_flags = PF_R | PF_X,
-			.p_offset = (uintptr_t) &first_user_word - (uintptr_t) &ehdr,
-			.p_vaddr = (uintptr_t) &first_user_word - (uintptr_t) &ehdr,
-			.p_paddr = (uintptr_t) &first_user_word - (uintptr_t) &ehdr,
+			.p_offset = OFFSET_TO_FIRST_USER_WORD,
+			.p_vaddr = OFFSET_TO_FIRST_USER_WORD,
+			.p_paddr = OFFSET_TO_FIRST_USER_WORD,
 			.p_filesz = TEXT_SZ,
 			.p_memsz = TEXT_SZ,
 			.p_align = PAGE_SIZE
@@ -142,9 +151,9 @@ static void init(void)
 	phdrs[3] = (Elf64_Phdr) {
 			.p_type = PT_LOAD,
 			.p_flags = PF_R,
-			.p_offset = (uintptr_t) &first_user_word + TEXT_SZ - (uintptr_t) &ehdr,
-			.p_vaddr = (uintptr_t) &first_user_word + TEXT_SZ - (uintptr_t) &ehdr,
-			.p_paddr = (uintptr_t) &first_user_word + TEXT_SZ - (uintptr_t) &ehdr,
+			.p_offset = OFFSET_TO_FIRST_USER_WORD + TEXT_SZ,
+			.p_vaddr = OFFSET_TO_FIRST_USER_WORD + TEXT_SZ,
+			.p_paddr = OFFSET_TO_FIRST_USER_WORD + TEXT_SZ,
 			.p_filesz = RODATA_SZ,
 			.p_memsz = RODATA_SZ,
 			.p_align = PAGE_SIZE
@@ -152,9 +161,9 @@ static void init(void)
 	phdrs[4] = (Elf64_Phdr) {
 			.p_type = PT_LOAD,
 			.p_flags = PF_R | PF_W,
-			.p_offset = (uintptr_t) &first_user_word + TEXT_SZ + RODATA_SZ - (uintptr_t) &ehdr,
-			.p_vaddr = (uintptr_t) &first_user_word + TEXT_SZ + RODATA_SZ - (uintptr_t) &ehdr,
-			.p_paddr = (uintptr_t) &first_user_word + TEXT_SZ + RODATA_SZ - (uintptr_t) &ehdr,
+			.p_offset = OFFSET_TO_FIRST_USER_WORD + TEXT_SZ + RODATA_SZ,
+			.p_vaddr = OFFSET_TO_FIRST_USER_WORD + TEXT_SZ + RODATA_SZ,
+			.p_paddr = OFFSET_TO_FIRST_USER_WORD + TEXT_SZ + RODATA_SZ,
 			.p_filesz = DATA_SZ, // could implement bss here
 			.p_memsz = DATA_SZ,
 			.p_align = PAGE_SIZE
@@ -162,9 +171,9 @@ static void init(void)
 	phdrs[5] = (Elf64_Phdr) { // writable mapping of text
 			.p_type = PT_LOAD,
 			.p_flags = PF_R | PF_W,
-			.p_offset = (uintptr_t) &first_user_word - (uintptr_t) &ehdr,
-			.p_vaddr = (uintptr_t) &first_user_word - (uintptr_t) &ehdr + TEXT_WRITABLE_VADDR_DELTA,
-			.p_paddr = (uintptr_t) &first_user_word - (uintptr_t) &ehdr + TEXT_WRITABLE_VADDR_DELTA,
+			.p_offset = OFFSET_TO_FIRST_USER_WORD,
+			.p_vaddr = OFFSET_TO_FIRST_USER_WORD + TEXT_WRITABLE_VADDR_DELTA,
+			.p_paddr = OFFSET_TO_FIRST_USER_WORD + TEXT_WRITABLE_VADDR_DELTA,
 			.p_filesz = TEXT_SZ,
 			.p_memsz = TEXT_SZ,
 			.p_align = PAGE_SIZE
@@ -271,8 +280,8 @@ static void init(void)
 			.sh_name = 11,
 			.sh_type = SHT_PROGBITS,
 			.sh_flags = SHF_ALLOC | SHF_EXECINSTR,
-			.sh_addr = (uintptr_t) &first_user_word - (uintptr_t) &ehdr,
-			.sh_offset = (uintptr_t) &first_user_word - (uintptr_t) &ehdr,
+			.sh_addr = OFFSET_TO_FIRST_USER_WORD,
+			.sh_offset = OFFSET_TO_FIRST_USER_WORD,
 			.sh_size = TEXT_SZ,
 			.sh_link = 0,
 			.sh_info = 0,
@@ -283,8 +292,8 @@ static void init(void)
 			.sh_name = 23,
 			.sh_type = SHT_PROGBITS,
 			.sh_flags = SHF_ALLOC,
-			.sh_addr = (uintptr_t) &first_user_word + TEXT_SZ - (uintptr_t) &ehdr,
-			.sh_offset = (uintptr_t) &first_user_word + TEXT_SZ - (uintptr_t) &ehdr,
+			.sh_addr = OFFSET_TO_FIRST_USER_WORD + TEXT_SZ,
+			.sh_offset = OFFSET_TO_FIRST_USER_WORD + TEXT_SZ,
 			.sh_size = RODATA_SZ,
 			.sh_link = 0,
 			.sh_info = 0,
@@ -295,8 +304,8 @@ static void init(void)
 			.sh_name = 17,
 			.sh_type = SHT_PROGBITS,
 			.sh_flags = SHF_ALLOC | SHF_WRITE,
-			.sh_addr = (uintptr_t) &first_user_word + TEXT_SZ + RODATA_SZ - (uintptr_t) &ehdr,
-			.sh_offset = (uintptr_t) &first_user_word + TEXT_SZ + RODATA_SZ - (uintptr_t) &ehdr,
+			.sh_addr = OFFSET_TO_FIRST_USER_WORD + TEXT_SZ + RODATA_SZ,
+			.sh_offset = OFFSET_TO_FIRST_USER_WORD + TEXT_SZ + RODATA_SZ,
 			.sh_size = DATA_SZ,
 			.sh_link = 0,
 			.sh_info = 0,
@@ -419,7 +428,7 @@ static void init(void)
 		&dynsym[0],
 		&dynstr_used[0]
 	);
-	_dlbind_elfproto_headerscn_sz = ((uintptr_t) &first_user_word - (uintptr_t) &ehdr);
+	_dlbind_elfproto_headerscn_sz = OFFSET_TO_FIRST_USER_WORD;
 	_dlbind_elfproto_memsz = _dlbind_elfproto_headerscn_sz + TEXT_SZ + DATA_SZ + RODATA_SZ;
 	_dlbind_elfproto_begin = &ehdr;
 	done_init = 1;
@@ -437,7 +446,7 @@ void memcpy_elfproto_to(void *dest)
 	size_t offset3 = (char*) &hash[2 + NBUCKET + MAX_SYMS - 1] - (char*) &ehdr;
 	size_t offset4 = &dynstr_used[0] + sizeof dynstr_used - (char*) &ehdr;
 	size_t offset5 = &dynstr_used[0] + DYNSTR_SZ - (char*) &ehdr;
-	size_t offset6 = (char*) &first_user_word - (char*) &ehdr;
+	size_t offset6 = OFFSET_TO_FIRST_USER_WORD;
 	assert(offset6 < _dlbind_elfproto_memsz);
 	
 	// first chunk is up to dynsym's first two symbols
