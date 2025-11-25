@@ -34,7 +34,7 @@
 #define DYNAMIC_N 14
 #define RELA_DYN_N 1
 #define SHSTRTAB_SZ 128
-#define PHDRS_N 6
+#define PHDRS_N 7
 #define SHDRS_N 10
 #define AVERAGE_SYM_LENGTH 10
 #define DYNSTR_SZ (AVERAGE_SYM_LENGTH * MAX_SYMS)
@@ -177,6 +177,16 @@ static void init(void)
 			.p_filesz = TEXT_SZ,
 			.p_memsz = TEXT_SZ,
 			.p_align = PAGE_SIZE
+		};
+	phdrs[6] = (Elf64_Phdr) { // writable mapping of text
+			.p_type = PT_GNU_STACK,
+			.p_flags = PF_R | PF_W,
+			.p_offset = 0,
+			.p_vaddr = 0,
+			.p_paddr = 0,
+			.p_filesz = 0,
+			.p_memsz = 0,
+			.p_align = 0x10
 		};
 	// };
 
